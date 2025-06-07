@@ -21,17 +21,19 @@ export default function ChaiContainer() {
                       </svg>
         </a>
         <Canvas camera={{ position: [0, 0, -0.2], fov:35 }}>
-        <XR store={store}>
+        
             
             
             <Stage environment="dawn">
             {/* <directionalLight position={[10, 10, 5]} intensity={1} />
             <spotLight position={[5, 5, 5]} intensity={1} angle={0.3} penumbra={0.2} /> */}
+            <XR store={store}>
             <Suspense>
                 <Center top>
             <Model scale={0.5} />
             </Center>
             </Suspense>
+            </XR>
             <ambientLight />
             
             {/* <primitive object={gltf.scene} /> */}
@@ -40,7 +42,7 @@ export default function ChaiContainer() {
                 <XROrigin/>
             </group> */}
             <OrbitControls minPolarAngle={Math.PI / 2.2} maxPolarAngle={Math.PI/2.2} />
-            </XR>
+            
             
         </Canvas>
       </>
