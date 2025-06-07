@@ -6,7 +6,7 @@ import logo from './assets/react.svg'
 import {TextureLoader} from 'three'
 import * as THREE from 'three'
 import Model from "./Chai"; 
-import { OrbitControls,Environment,Stage } from "@react-three/drei";
+import { OrbitControls,Environment,Stage, Center } from "@react-three/drei";
 
 const store = createXRStore({depthSensing:true,hand:false});
 
@@ -23,18 +23,22 @@ export default function ChaiContainer() {
         <Canvas camera={{ position: [0, 0, -0.2], near: 0.025,fov:35 }}>
         <XR store={store}>
             <OrbitControls minPolarAngle={Math.PI / 2.2} maxPolarAngle={Math.PI/2.2} />
-            <ambientLight intensity={0.5} />
-            <Stage environment="city">
+            
+            <Stage environment="dawn">
             {/* <directionalLight position={[10, 10, 5]} intensity={1} />
             <spotLight position={[5, 5, 5]} intensity={1} angle={0.3} penumbra={0.2} /> */}
             <Suspense>
+                <Center top>
             <Model scale={0.5} />
+            </Center>
             </Suspense>
+            <ambientLight />
+            
+            {/* <primitive object={gltf.scene} /> */}
+            </Stage>
             <group position={[0,0,5.6]}>
                 <XROrigin/>
             </group>
-            {/* <primitive object={gltf.scene} /> */}
-            </Stage>
             </XR>
         </Canvas>
       </>
