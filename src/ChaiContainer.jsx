@@ -20,7 +20,7 @@ export default function ChaiContainer() {
                           <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 5h12m0 0L9 1m4 4L9 9"/>
                       </svg>
         </a>
-        <Canvas camera={{ position: [0, 0, -0.2], near: 0.025,fov:35 }}>
+        <Canvas camera={{ position: [0, 0, -0.2], fov:35 }}>
         <XR store={store}>
             <OrbitControls minPolarAngle={Math.PI / 2.2} maxPolarAngle={Math.PI/2.2} />
             
