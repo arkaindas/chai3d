@@ -1,23 +1,61 @@
-import React, { Suspense, useRef } from 'react'
-import { ARCanvas, DefaultXRControllers, XR, useHitTest, useXR } from '@react-three/xr'
+import React, { useRef, useState, useEffect, Suspense } from 'react'
+import { ARCanvas, XR, useXRFrame, DefaultXRControllers, useXR } from '@react-three/xr'
 import { Center, Environment } from '@react-three/drei'
 import Model from './Chai'
+import * as THREE from 'three'
 
 function ReticleModel() {
   const ref = useRef()
+  const [hitTestSource, setHitTestSource] = useState(null)
+  const [hitTestSourceRequested, setHitTestSourceRequested] = useState(false)
+  const { player } = useXR()
 
-  useHitTest((hit) => {
-    hit.decompose(ref.current.position, ref.current.quaternion, ref.current.scale)
+  useXRFrame((_, frame) => {
+    if (!frame) return
+
+    const referenceSpace = player?.space
+    const session = frame.session
+
+    if (!hitTestSourceRequested) {
+      session.requestReferenceSpace('viewer').then((viewerSpace) => {
+        session.requestHitTestSource({ space: viewerSpace }).then((source) => {
+          setHitTestSource(source)
+        })
+      })
+      setHitTestSourceRequested(true)
+    }
+
+    if (hitTestSource && referenceSpace) {
+      const hitTestResults = frame.getHitTestResults(hitTestSource)
+      if (hitTestResults.length > 0) {
+        const hit = hitTestResults[0]
+        const pose = hit.getPose(referenceSpace)
+
+        if (pose) {
+          ref.current.visible = true
+          ref.current.position.set(
+            pose.transform.position.x,
+            pose.transform.position.y,
+            pose.transform.position.z
+          )
+          ref.current.quaternion.set(
+            pose.transform.orientation.x,
+            pose.transform.orientation.y,
+            pose.transform.orientation.z,
+            pose.transform.orientation.w
+          )
+        }
+      }
+    }
   })
 
   return (
-    <group ref={ref}>
+    <group ref={ref} visible={false}>
       <Model scale={0.5} />
     </group>
   )
 }
 
-// ✅ Custom AR Start Button using XR hook
 function StartARButton() {
   const { startSession } = useXR()
 
@@ -37,7 +75,6 @@ function StartARButton() {
 export default function ChaiContainer() {
   return (
     <>
-      {/* Your Button is back! */}
       <StartARButton />
 
       <ARCanvas sessionInit={{ requiredFeatures: ['hit-test', 'local-floor'] }}>
