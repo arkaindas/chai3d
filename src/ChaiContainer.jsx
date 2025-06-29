@@ -1,93 +1,47 @@
-import React, { useRef, useState, useEffect, Suspense } from 'react'
-import { ARCanvas, XR, useXRFrame, DefaultXRControllers, useXR } from '@react-three/xr'
-import { Center, Environment } from '@react-three/drei'
+import React, { Suspense, useRef } from 'react'
+import { Canvas } from '@react-three/fiber'
+import { XR, createXRStore, DefaultXRControllers } from '@react-three/xr'
+import { Environment, Center } from '@react-three/drei'
 import Model from './Chai'
-import * as THREE from 'three'
 
-function ReticleModel() {
-  const ref = useRef()
-  const [hitTestSource, setHitTestSource] = useState(null)
-  const [hitTestSourceRequested, setHitTestSourceRequested] = useState(false)
-  const { player } = useXR()
-
-  useXRFrame((_, frame) => {
-    if (!frame) return
-
-    const referenceSpace = player?.space
-    const session = frame.session
-
-    if (!hitTestSourceRequested) {
-      session.requestReferenceSpace('viewer').then((viewerSpace) => {
-        session.requestHitTestSource({ space: viewerSpace }).then((source) => {
-          setHitTestSource(source)
-        })
-      })
-      setHitTestSourceRequested(true)
-    }
-
-    if (hitTestSource && referenceSpace) {
-      const hitTestResults = frame.getHitTestResults(hitTestSource)
-      if (hitTestResults.length > 0) {
-        const hit = hitTestResults[0]
-        const pose = hit.getPose(referenceSpace)
-
-        if (pose) {
-          ref.current.visible = true
-          ref.current.position.set(
-            pose.transform.position.x,
-            pose.transform.position.y,
-            pose.transform.position.z
-          )
-          ref.current.quaternion.set(
-            pose.transform.orientation.x,
-            pose.transform.orientation.y,
-            pose.transform.orientation.z,
-            pose.transform.orientation.w
-          )
-        }
-      }
-    }
-  })
-
-  return (
-    <group ref={ref} visible={false}>
-      <Model scale={0.5} />
-    </group>
-  )
-}
-
-function StartARButton() {
-  const { startSession } = useXR()
-
-  return (
-    <button
-      onClick={startSession}
-      className="inline-flex justify-center items-center py-3 px-5 text-base font-medium text-white rounded-lg bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-900"
-    >
-      Order from your table
-      <svg className="w-3.5 h-3.5 ms-2 rtl:rotate-180" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 14 10">
-        <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M1 5h12m0 0L9 1m4 4L9 9" />
-      </svg>
-    </button>
-  )
-}
+const store = createXRStore({ depthSensing: true, hand: false })
 
 export default function ChaiContainer() {
+  const modelRef = useRef()
+
+  const placeModel = () => {
+    if (modelRef.current) {
+      modelRef.current.visible = true
+      modelRef.current.position.set(0, 0, -0.5) // Place 0.5m in front of camera
+    }
+  }
+
   return (
     <>
-      <StartARButton />
+      {/* Your original button triggering AR */}
+      <a
+        onClick={() => store.enterAR()}
+        className="inline-flex justify-center items-center py-3 px-5 text-base font-medium text-white rounded-lg bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-900"
+      >
+        Order from your table
+        <svg className="w-3.5 h-3.5 ms-2 rtl:rotate-180" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 14 10">
+          <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M1 5h12m0 0L9 1m4 4L9 9" />
+        </svg>
+      </a>
 
-      <ARCanvas sessionInit={{ requiredFeatures: ['hit-test', 'local-floor'] }}>
-        <XR>
+      <Canvas camera={{ position: [0, 0, 0.2], fov: 70 }}>
+        <XR store={store}>
           <Suspense fallback={null}>
             <Environment preset="dawn" />
             <Center>
-              <ReticleModel />
+              <group ref={modelRef} visible={false} onClick={placeModel}>
+                <Model scale={0.5} />
+              </group>
             </Center>
           </Suspense>
           <DefaultXRControllers />
         </XR>
-      </ARCanvas>
+      </Canvas>
     </>
   )
 }
