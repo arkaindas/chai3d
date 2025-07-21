@@ -1,0 +1,99 @@
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const form = document.getElementById("myForm");
+  form.setAttribute("novalidate", true);
+
+  // Validate individual field on blur
+  const requiredFields = Array.from(form.querySelectorAll("[required]")).filter(el =>
+    el.closest(".text, .option")
+  );
+
+  requiredFields.forEach(field => {
+    field.addEventListener("blur", () => validateField(field));
+  });
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    let isValid = true;
+
+    // Clear previous errors
+    form.querySelectorAll(".error-message").forEach(el => el.remove());
+
+    const radioGroupsChecked = new Set();
+
+    requiredFields.forEach(field => {
+      const type = field.type;
+      const name = field.name;
+
+      if (type === "radio" && radioGroupsChecked.has(name)) return;
+      if (type === "radio") radioGroupsChecked.add(name);
+
+      const fieldValid = validateField(field, radioGroupsChecked);
+      if (!fieldValid) isValid = false;
+    });
+
+    if (isValid) {
+      alert("Form is valid and ready to submit!");
+      // form.submit(); // enable for actual submission
+    }
+  });
+
+  function validateField(field, radioGroupsChecked = new Set()) {
+    const type = field.type;
+    const value = field.value.trim();
+    const name = field.name;
+    const wrapper = field.closest(".text, .option");
+    let error = "";
+
+    // Remove existing error
+    const existingError = wrapper.querySelector(".error-message");
+    if (existingError) existingError.remove();
+
+    if (type === "radio") {
+      const radios = form.querySelectorAll(`input[name="${name}"]`);
+      const oneChecked = Array.from(radios).some(r => r.checked);
+      if (!oneChecked) {
+        error = "Please select an option.";
+        const errorDiv = document.createElement("div");
+        errorDiv.className = "error-message";
+        errorDiv.textContent = error;
+        const groupWrapper = field.closest(".option") || field.parentNode;
+        groupWrapper.appendChild(errorDiv);
+        return false;
+      }
+      return true;
+    }
+
+    if (type === "checkbox" && !field.checked) {
+      error = "This checkbox is required.";
+    } else if (field.tagName.toLowerCase() === "select" && !value) {
+      error = "Please select a value.";
+    } else if (type === "email") {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!value) {
+        error = "This field is required.";
+      } else if (!emailRegex.test(value)) {
+        error = "Please enter a valid email address.";
+      }
+    } else if (type === "number") {
+      if (!value || isNaN(value)) {
+        error = "Please enter a valid number.";
+      }
+    } else {
+      if (!value) {
+        error = "This field is required.";
+      }
+    }
+
+    if (error) {
+      const errorDiv = document.createElement("div");
+      errorDiv.className = "error-message";
+      errorDiv.textContent = error;
+      field.insertAdjacentElement("afterend", errorDiv);
+      return false;
+    }
+
+    return true;
+  }
+});
+</script>
