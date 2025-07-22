@@ -1,97 +1,22 @@
 document.addEventListener("DOMContentLoaded", function () {
-  const form = document.getElementById("myForm");
-  form.setAttribute("novalidate", true); // disable native validation
+  const requiredWrappers = document.querySelectorAll('.text, .options');
 
-  const scopedFields = Array.from(form.querySelectorAll("[required]")).filter(el =>
-    el.closest(".text, .option")
-  );
+  requiredWrappers.forEach(wrapper => {
+    const requiredInputs = wrapper.querySelectorAll('[required]');
 
-  scopedFields.forEach(field => {
-    field.addEventListener("blur", () => validateField(field));
-  });
+    requiredInputs.forEach(input => {
+      const id = input.id;
+      if (!id) return; // Skip if there's no ID
 
-  form.addEventListener("submit", function (e) {
-    let isScopedValid = true;
+      const label = wrapper.querySelector(`label[for="${id}"]`);
 
-    // Clear only our error messages
-    form.querySelectorAll(".text .error-message, .option .error-message").forEach(el => el.remove());
-
-    const radioGroupsChecked = new Set();
-
-    scopedFields.forEach(field => {
-      const type = field.type;
-      const name = field.name;
-
-      if (type === "radio" && radioGroupsChecked.has(name)) return;
-      if (type === "radio") radioGroupsChecked.add(name);
-
-      const valid = validateField(field, radioGroupsChecked);
-      if (!valid) isScopedValid = false;
+      if (label && !label.querySelector('.required-indicator')) {
+        const asterisk = document.createElement('span');
+        asterisk.textContent = ' *';
+        asterisk.className = 'required-indicator';
+        asterisk.style.color = 'red';
+        label.appendChild(asterisk);
+      }
     });
-
-    // ❗ Only prevent submit if your custom fields are invalid
-    if (!isScopedValid) {
-      e.preventDefault();
-      e.stopImmediatePropagation(); // Stops *your* event chain, not other handlers
-    }
-
-    // Let legacy/existing validation continue if ours passes
   });
-
-  function validateField(field, radioGroupsChecked = new Set()) {
-    const type = field.type;
-    const value = field.value.trim();
-    const name = field.name;
-    const wrapper = field.closest(".text, .option");
-    let error = "";
-
-    // Remove previous error
-    const existingError = wrapper.querySelector(".error-message");
-    if (existingError) existingError.remove();
-
-    if (type === "radio") {
-      const group = document.querySelectorAll(`input[name="${name}"]`);
-      const oneChecked = Array.from(group).some(el => el.checked);
-      if (!oneChecked) {
-        error = "Please select an option.";
-        const errorDiv = document.createElement("div");
-        errorDiv.className = "error-message";
-        errorDiv.textContent = error;
-        wrapper.appendChild(errorDiv);
-        return false;
-      }
-      return true;
-    }
-
-    if (type === "checkbox" && !field.checked) {
-      error = "This checkbox is required.";
-    } else if (field.tagName.toLowerCase() === "select" && !value) {
-      error = "Please select a value.";
-    } else if (type === "email") {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!value) {
-        error = "This field is required.";
-      } else if (!emailRegex.test(value)) {
-        error = "Please enter a valid email address.";
-      }
-    } else if (type === "number") {
-      if (!value || isNaN(value)) {
-        error = "Please enter a valid number.";
-      }
-    } else {
-      if (!value) {
-        error = "This field is required.";
-      }
-    }
-
-    if (error) {
-      const errorDiv = document.createElement("div");
-      errorDiv.className = "error-message";
-      errorDiv.textContent = error;
-      field.insertAdjacentElement("afterend", errorDiv);
-      return false;
-    }
-
-    return true;
-  }
 });
