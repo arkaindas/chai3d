@@ -1,18 +1,69 @@
-const dynamicFileGroups = document.querySelectorAll('.contactUsFileUpload');
+function validateDynamicFileUploads() {
+  let isValid = true;
 
-if (dynamicFileGroups.length > 0) {
-  dynamicFileGroups.forEach((group, index) => {
+  const fileUploadGroups = document.querySelectorAll('.contactUsFileUpload');
+
+  // Skip validation if no file upload fields exist
+  if (!fileUploadGroups.length) return true;
+
+  fileUploadGroups.forEach(group => {
     const fileInput = group.querySelector('input[type="file"]');
+    if (!fileInput) return;
 
-    if (fileInput) {
-      const fieldKey = `uploadImageDynamic_${fileInput.id || index}`;
-      const file = fileInput.files[0];
+    const file = fileInput.files[0];
+    const fileId = fileInput.id; // e.g., test1, test2
 
-      if (file) {
-        formData.set(fieldKey, file);
-      } else {
-        formData.set(fieldKey, null);
-      }
+    // Dynamic error element IDs
+    const blankError = document.getElementById(`imageError_${fileId}`);
+    const formatError = document.getElementById(`imageInvalidError_${fileId}`);
+    const sizeError = document.getElementById(`imageSizeError_${fileId}`);
+
+    // Hide all error messages initially
+    if (blankError) blankError.style.display = 'none';
+    if (formatError) formatError.style.display = 'none';
+    if (sizeError) sizeError.style.display = 'none';
+
+    // Blank file check
+    if (!file) {
+      if (blankError) blankError.style.display = 'block';
+      isValid = false;
+      return;
+    }
+
+    // Type check
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+    if (!allowedTypes.includes(file.type)) {
+      if (formatError) formatError.style.display = 'block';
+      isValid = false;
+    }
+
+    // Size check
+    const maxSizeInMB = 2;
+    if (file.size > maxSizeInMB * 1024 * 1024) {
+      if (sizeError) sizeError.style.display = 'block';
+      isValid = false;
     }
   });
+
+  return isValid;
 }
+
+// 🔁 Hook live validation only if dynamic upload fields exist
+document.addEventListener('DOMContentLoaded', function () {
+  const fileUploadGroups = document.querySelectorAll('.contactUsFileUpload');
+
+  if (!fileUploadGroups.length) return; // 👈 safe exit if none present
+
+  fileUploadGroups.forEach(group => {
+    const fileInput = group.querySelector('input[type="file"]');
+    if (fileInput) {
+      fileInput.addEventListener('change', function () {
+        validateDynamicFileUploads(); // Live validation on file select
+      });
+    }
+  });
+});
