@@ -1,22 +1,48 @@
-document.addEventListener("DOMContentLoaded", function () {
-  const requiredWrappers = document.querySelectorAll('.text, .options');
+function validateDynamicFileUploads() {
+  let isValid = true;
 
-  requiredWrappers.forEach(wrapper => {
-    const requiredInputs = wrapper.querySelectorAll('[required]');
+  const fileUploadGroups = document.querySelectorAll('.contactUsFileUpload');
 
-    requiredInputs.forEach(input => {
-      const id = input.id;
-      if (!id) return; // Skip if there's no ID
+  fileUploadGroups.forEach(group => {
+    const fileInput = group.querySelector('input[type="file"]');
 
-      const label = wrapper.querySelector(`label[for="${id}"]`);
+    if (!fileInput) return;
 
-      if (label && !label.querySelector('.required-indicator')) {
-        const asterisk = document.createElement('span');
-        asterisk.textContent = ' *';
-        asterisk.className = 'required-indicator';
-        asterisk.style.color = 'red';
-        label.appendChild(asterisk);
-      }
-    });
+    const file = fileInput.files[0];
+    const fileId = fileInput.id; // e.g., test1, test2
+
+    // Dynamic error element IDs
+    const blankError = document.getElementById(`imageError_${fileId}`);
+    const formatError = document.getElementById(`imageInvalidError_${fileId}`);
+    const sizeError = document.getElementById(`imageSizeError_${fileId}`);
+
+    // Hide all error messages initially
+    if (blankError) blankError.style.display = 'none';
+    if (formatError) formatError.style.display = 'none';
+    if (sizeError) sizeError.style.display = 'none';
+
+    if (!file) {
+      if (blankError) blankError.style.display = 'block';
+      isValid = false;
+      return;
+    }
+
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+    if (!allowedTypes.includes(file.type)) {
+      if (formatError) formatError.style.display = 'block';
+      isValid = false;
+    }
+
+    const maxSizeInMB = 2;
+    if (file.size > maxSizeInMB * 1024 * 1024) {
+      if (sizeError) sizeError.style.display = 'block';
+      isValid = false;
+    }
   });
-});
+
+  return isValid;
+}
