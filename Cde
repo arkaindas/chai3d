@@ -1,11 +1,3 @@
-<div class="typeahead-component" data-options='["Electric grid", "Electric vehicle", "Electric charging stations", "Electric zones", "Electric vehicles", "Electric scooter", "Electricity market"]'>
-  <div class="input-wrapper">
-    <span class="search-icon">🔍</span>
-    <input type="text" class="typeahead-input" placeholder="Search..." />
-  </div>
-  <ul class="typeahead-results"></ul>
-</div>
-
 document.addEventListener("DOMContentLoaded", () => {
   const typeahead = document.querySelector(".typeahead-component");
   const input = typeahead.querySelector(".typeahead-input");
@@ -15,7 +7,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const MAX_RESULTS = 7;
   let activeIndex = -1;
 
-  function renderResults(matches) {
+  function highlightMatch(text, query) {
+    const regex = new RegExp(`(${query})`, "ig");
+    return text.replace(regex, `<mark>$1</mark>`);
+  }
+
+  function renderResults(matches, query) {
     resultsList.innerHTML = "";
     activeIndex = -1;
 
@@ -23,7 +20,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const li = document.createElement("li");
       li.classList.add("typeahead-result");
       li.setAttribute("data-index", index);
-      li.innerHTML = `<span class="result-text">${match}</span><span class="arrow-icon">↗</span>`;
+
+      li.innerHTML = `
+        <span class="result-text">${highlightMatch(match, query)}</span>
+        <span class="arrow-icon">↗</span>
+      `;
+
       resultsList.appendChild(li);
 
       li.addEventListener("click", () => {
@@ -48,16 +50,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   input.addEventListener("input", () => {
-    const query = input.value.trim().toLowerCase();
-    resultsList.innerHTML = "";
-
-    if (query.length === 0) return;
+    const query = input.value.trim();
+    if (query.length === 0) {
+      resultsList.innerHTML = "";
+      return;
+    }
 
     const matches = options
-      .filter(option => option.toLowerCase().includes(query))
+      .filter(option => option.toLowerCase().includes(query.toLowerCase()))
       .slice(0, MAX_RESULTS);
 
-    renderResults(matches);
+    renderResults(matches, query);
   });
 
   input.addEventListener("keydown", (e) => {
@@ -84,71 +87,3 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
-
-
-.typeahead-component {
-  width: 100%;
-  max-width: 400px;
-  position: relative;
-  font-family: Arial, sans-serif;
-
-  .input-wrapper {
-    position: relative;
-
-    .search-icon {
-      position: absolute;
-      left: 10px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: #333;
-      font-size: 18px;
-    }
-
-    .typeahead-input {
-      width: 100%;
-      padding: 10px 12px 10px 35px;
-      font-size: 16px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-    }
-  }
-
-  .typeahead-results {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: white;
-    border: 1px solid #ccc;
-    border-top: none;
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    z-index: 1000;
-
-    .typeahead-result {
-      display: flex;
-      justify-content: space-between;
-      padding: 10px;
-      cursor: pointer;
-      border-top: 1px solid #eee;
-
-      &:hover,
-      &.active {
-        background-color: #f5f5f5;
-      }
-
-      .arrow-icon {
-        font-size: 16px;
-        color: #666;
-      }
-
-      .result-text {
-        flex: 1;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-    }
-  }
-}
