@@ -3,7 +3,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const input = typeahead.querySelector(".typeahead-input");
   const resultsList = typeahead.querySelector(".typeahead-results");
 
-  const options = JSON.parse(typeahead.dataset.options);
+  const options = JSON.parse(document.querySelector("ul[data-options]").dataset.options);
   const MAX_RESULTS = 7;
   let activeIndex = -1;
 
@@ -16,21 +16,21 @@ document.addEventListener("DOMContentLoaded", () => {
     resultsList.innerHTML = "";
     activeIndex = -1;
 
-    matches.forEach((match, index) => {
+    matches.forEach((item, index) => {
       const li = document.createElement("li");
       li.classList.add("typeahead-result");
       li.setAttribute("data-index", index);
+      li.setAttribute("data-path", item.path);
 
       li.innerHTML = `
-        <span class="result-text">${highlightMatch(match, query)}</span>
+        <span class="result-text">${highlightMatch(item.term, query)}</span>
         <span class="arrow-icon">↗</span>
       `;
 
       resultsList.appendChild(li);
 
       li.addEventListener("click", () => {
-        input.value = match;
-        resultsList.innerHTML = "";
+        window.location.href = item.path;
       });
     });
   }
@@ -57,7 +57,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const matches = options
-      .filter(option => option.toLowerCase().includes(query.toLowerCase()))
+      .filter(option => option.term.toLowerCase().includes(query.toLowerCase()))
       .slice(0, MAX_RESULTS);
 
     renderResults(matches, query);
@@ -75,8 +75,8 @@ document.addEventListener("DOMContentLoaded", () => {
     } else if (e.key === "Enter") {
       if (activeIndex >= 0 && items.length > 0) {
         e.preventDefault();
-        input.value = items[activeIndex].textContent.trim();
-        resultsList.innerHTML = "";
+        const selected = items[activeIndex];
+        window.location.href = selected.getAttribute("data-path");
       }
     }
   });
