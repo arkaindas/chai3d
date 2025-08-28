@@ -1,32 +1,34 @@
-/* hide native checkbox */
+/* base - round like radio */
 .cmp-form-options__field--checkbox {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border: 2px solid #999;
-  border-radius: 50%;   /* <-- makes it round like radio */
+  border-radius: 50%;   /* round shape */
   display: inline-block;
   position: relative;
   cursor: pointer;
   margin-right: 8px;
+  vertical-align: middle;
+  background: #fff;
 }
 
-/* checked state - orange filled circle */
+/* checked state */
 .cmp-form-options__field--checkbox:checked {
-  border-color: #e46a1f; /* outer border color */
-  background-color: #fff;
+  border-color: #e46a1f;
+  background-color: #e46a1f;
 }
 
+/* tick mark */
 .cmp-form-options__field--checkbox:checked::after {
-  content: "";
+  content: "✔";
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 8px;
-  height: 8px;
-  background: #e46a1f;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -58%); /* center align */
+  font-size: 14px;
+  color: #fff;
+  font-weight: bold;
 }
