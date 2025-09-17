@@ -1,33 +1,77 @@
-<section class="charging-stations">
-  <h2>Nearby Charging Stations</h2>
+.charging-stations {
+  font-family: Arial, sans-serif;
+  padding: 16px;
+  max-width: 600px;
+  margin: auto;
 
-  <div class="station">
-    <span class="status open">Open</span>
-    <span class="time">10:00AM - 10:30PM</span>
-    <h3 class="name">Calicut Airport Charging Station</h3>
-    <div class="details">
-      <span class="distance">1.4km away</span>
-      <a href="#" class="navigate">Navigate →</a>
-    </div>
-  </div>
+  h2 {
+    font-size: 1.2rem;
+    margin-bottom: 1rem;
+    font-weight: 600;
+  }
 
-  <div class="station">
-    <span class="status busy">Busy</span>
-    <span class="time">10:00AM - 10:30PM</span>
-    <h3 class="name">EV Station IUY79</h3>
-    <div class="details">
-      <span class="distance">2.2km away</span>
-      <a href="#" class="navigate">Navigate →</a>
-    </div>
-  </div>
+  .station {
+    border-bottom: 1px solid #ddd;
+    padding: 12px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 
-  <div class="station">
-    <span class="status closed">Closed</span>
-    <span class="time">11:00AM - 08:00PM</span>
-    <h3 class="name">Calicut Airport Charging Station</h3>
-    <div class="details">
-      <span class="distance">3.4km away</span>
-      <a href="#" class="navigate">Navigate →</a>
-    </div>
-  </div>
-</section>
+    .status {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #fff;
+
+      &.open   { background-color: #0073e6; }   // blue
+      &.busy   { background-color: #e67e22; }   // orange
+      &.closed { background-color: #7f8c8d; }   // gray
+    }
+
+    .time {
+      font-size: 0.85rem;
+      color: #555;
+    }
+
+    .name {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 0;
+      color: #222;
+    }
+
+    .details {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.9rem;
+
+      .distance {
+        color: #666;
+      }
+
+      .navigate {
+        color: #0073e6;
+        text-decoration: none;
+        font-weight: 600;
+
+        &:hover {
+          text-decoration: underline;
+        }
+      }
+    }
+  }
+
+  /* Responsive tweaks */
+  @media (max-width: 480px) {
+    .station {
+      .details {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+      }
+    }
+  }
+}
