@@ -1,34 +1,33 @@
-/* base - round like radio */
-.cmp-form-options__field--checkbox {
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  width: 20px;
-  height: 20px;
-  border: 2px solid #999;
-  border-radius: 50%;   /* round shape */
-  display: inline-block;
-  position: relative;
-  cursor: pointer;
-  margin-right: 8px;
-  vertical-align: middle;
-  background: #fff;
-}
+<section class="charging-stations">
+  <h2>Nearby Charging Stations</h2>
 
-/* checked state */
-.cmp-form-options__field--checkbox:checked {
-  border-color: #e46a1f;
-  background-color: #e46a1f;
-}
+  <div class="station">
+    <span class="status open">Open</span>
+    <span class="time">10:00AM - 10:30PM</span>
+    <h3 class="name">Calicut Airport Charging Station</h3>
+    <div class="details">
+      <span class="distance">1.4km away</span>
+      <a href="#" class="navigate">Navigate →</a>
+    </div>
+  </div>
 
-/* tick mark */
-.cmp-form-options__field--checkbox:checked::after {
-  content: "✔";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -58%); /* center align */
-  font-size: 14px;
-  color: #fff;
-  font-weight: bold;
-}
+  <div class="station">
+    <span class="status busy">Busy</span>
+    <span class="time">10:00AM - 10:30PM</span>
+    <h3 class="name">EV Station IUY79</h3>
+    <div class="details">
+      <span class="distance">2.2km away</span>
+      <a href="#" class="navigate">Navigate →</a>
+    </div>
+  </div>
+
+  <div class="station">
+    <span class="status closed">Closed</span>
+    <span class="time">11:00AM - 08:00PM</span>
+    <h3 class="name">Calicut Airport Charging Station</h3>
+    <div class="details">
+      <span class="distance">3.4km away</span>
+      <a href="#" class="navigate">Navigate →</a>
+    </div>
+  </div>
+</section>
