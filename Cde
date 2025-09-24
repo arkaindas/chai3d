@@ -1,77 +1,106 @@
-.charging-stations {
-  font-family: Arial, sans-serif;
-  padding: 16px;
-  max-width: 600px;
-  margin: auto;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Origin & Destination Validation</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
 
-  h2 {
-    font-size: 1.2rem;
-    margin-bottom: 1rem;
-    font-weight: 600;
-  }
+    .ez-locator_search-row {
+      margin-bottom: 12px;
+      position: relative;
+    }
 
-  .station {
-    border-bottom: 1px solid #ddd;
-    padding: 12px 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+    .ez-locator_search-row input {
+      width: 320px;
+      padding: 10px;
+      font-size: 16px;
+      border: 2px solid #ccc;
+      border-radius: 6px;
+      outline: none;
+    }
 
-    .status {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 0.8rem;
-      font-weight: 600;
+    .ez-locator_search-row input.error {
+      border-color: red;
+    }
+
+    .error-message {
+      font-size: 14px;
+      color: red;
+      margin-top: 8px;
+      display: none;
+    }
+
+    .error-message.active {
+      display: block;
+    }
+
+    button {
+      padding: 10px 16px;
+      font-size: 16px;
+      border: none;
+      border-radius: 6px;
+      background: #0078d7;
       color: #fff;
-
-      &.open   { background-color: #0073e6; }   // blue
-      &.busy   { background-color: #e67e22; }   // orange
-      &.closed { background-color: #7f8c8d; }   // gray
+      cursor: pointer;
     }
+  </style>
+</head>
+<body>
 
-    .time {
-      font-size: 0.85rem;
-      color: #555;
-    }
+  <form id="ez-locator_search-form">
+    <div class="ez-locator_search-row">
+      <input id="ez-search-origin" type="text" placeholder="Start from (Origin)" autocomplete="off">
+    </div>
 
-    .name {
-      font-size: 1rem;
-      font-weight: 600;
-      margin: 0;
-      color: #222;
-    }
+    <div class="ez-locator_search-row">
+      <input id="ez-search-destination" type="text" placeholder="Where to (Destination)" autocomplete="off">
+    </div>
 
-    .details {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 0.9rem;
+    <!-- Single shared error message -->
+    <div class="error-message" id="form-error">Origin and Destination are required</div>
 
-      .distance {
-        color: #666;
-      }
+    <button type="submit">Search</button>
+  </form>
 
-      .navigate {
-        color: #0073e6;
-        text-decoration: none;
-        font-weight: 600;
+  <script>
+    const originInput = document.getElementById('ez-search-origin');
+    const destinationInput = document.getElementById('ez-search-destination');
+    const formError = document.getElementById('form-error');
+    const form = document.getElementById('ez-locator_search-form');
 
-        &:hover {
-          text-decoration: underline;
-        }
-      }
-    }
-  }
+    function validateForm() {
+      const originEmpty = originInput.value.trim() === "";
+      const destinationEmpty = destinationInput.value.trim() === "";
 
-  /* Responsive tweaks */
-  @media (max-width: 480px) {
-    .station {
-      .details {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 4px;
+      if (originEmpty || destinationEmpty) {
+        originInput.classList.toggle("error", originEmpty);
+        destinationInput.classList.toggle("error", destinationEmpty);
+        formError.classList.add("active");
+        return false;
+      } else {
+        originInput.classList.remove("error");
+        destinationInput.classList.remove("error");
+        formError.classList.remove("active");
+        return true;
       }
     }
-  }
-}
+
+    // live validation on input
+    originInput.addEventListener("input", validateForm);
+    destinationInput.addEventListener("input", validateForm);
+
+    // on form submit
+    form.addEventListener("submit", (e) => {
+      if (!validateForm()) {
+        e.preventDefault(); // block form submission
+      }
+    });
+  </script>
+
+</body>
+</html>
