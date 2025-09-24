@@ -1,78 +1,44 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Origin & Destination Validation</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
+import { Loader } from "@googlemaps/js-api-loader";
+
+document.addEventListener("DOMContentLoaded", () => {
+  const mapElement = document.getElementById("ez-map");
+  if (!mapElement) return;
+
+  const apiKey = mapElement.getAttribute("data-ez-api-key");
+  if (!apiKey) {
+    console.error("Google Maps API key not found in data-ez-api-key attribute");
+    return;
+  }
+
+  const loader = new Loader({
+    apiKey: apiKey,
+    version: "weekly",
+    libraries: ["places"] // ✅ need "places" for autocomplete
+  });
+
+  loader.load().then((google) => {
+    const originInput = document.getElementById("ez-search-origin");
+    const destinationInput = document.getElementById("ez-search-destination");
+    const form = document.getElementById("ez-locator_search-form");
+    const formError = document.getElementById("form-error");
+
+    if (!originInput || !destinationInput) {
+      console.warn("Origin/Destination inputs not found");
+      return;
     }
 
-    .ez-locator_search-row {
-      margin-bottom: 12px;
-      position: relative;
-    }
+    // Attach Google Places Autocomplete
+    const originAutocomplete = new google.maps.places.Autocomplete(originInput, {
+      fields: ["place_id", "geometry", "formatted_address", "name"],
+      types: ["geocode"]
+    });
 
-    .ez-locator_search-row input {
-      width: 320px;
-      padding: 10px;
-      font-size: 16px;
-      border: 2px solid #ccc;
-      border-radius: 6px;
-      outline: none;
-    }
+    const destinationAutocomplete = new google.maps.places.Autocomplete(destinationInput, {
+      fields: ["place_id", "geometry", "formatted_address", "name"],
+      types: ["geocode"]
+    });
 
-    .ez-locator_search-row input.error {
-      border-color: red;
-    }
-
-    .error-message {
-      font-size: 14px;
-      color: red;
-      margin-top: 8px;
-      display: none;
-    }
-
-    .error-message.active {
-      display: block;
-    }
-
-    button {
-      padding: 10px 16px;
-      font-size: 16px;
-      border: none;
-      border-radius: 6px;
-      background: #0078d7;
-      color: #fff;
-      cursor: pointer;
-    }
-  </style>
-</head>
-<body>
-
-  <form id="ez-locator_search-form">
-    <div class="ez-locator_search-row">
-      <input id="ez-search-origin" type="text" placeholder="Start from (Origin)" autocomplete="off">
-    </div>
-
-    <div class="ez-locator_search-row">
-      <input id="ez-search-destination" type="text" placeholder="Where to (Destination)" autocomplete="off">
-    </div>
-
-    <!-- Single shared error message -->
-    <div class="error-message" id="form-error">Origin and Destination are required</div>
-
-    <button type="submit">Search</button>
-  </form>
-
-  <script>
-    const originInput = document.getElementById('ez-search-origin');
-    const destinationInput = document.getElementById('ez-search-destination');
-    const formError = document.getElementById('form-error');
-    const form = document.getElementById('ez-locator_search-form');
-
+    // Simple validation function
     function validateForm() {
       const originEmpty = originInput.value.trim() === "";
       const destinationEmpty = destinationInput.value.trim() === "";
@@ -90,17 +56,24 @@
       }
     }
 
-    // live validation on input
+    // Live validation on typing
     originInput.addEventListener("input", validateForm);
     destinationInput.addEventListener("input", validateForm);
 
-    // on form submit
+    // Clear validation when a place is picked
+    originAutocomplete.addListener("place_changed", validateForm);
+    destinationAutocomplete.addListener("place_changed", validateForm);
+
+    // Validate on form submit
     form.addEventListener("submit", (e) => {
       if (!validateForm()) {
-        e.preventDefault(); // block form submission
+        e.preventDefault();
+      } else {
+        console.log("Form valid. You can now use the place details.");
+        // Example: log the place objects
+        console.log("Origin place:", originAutocomplete.getPlace());
+        console.log("Destination place:", destinationAutocomplete.getPlace());
       }
     });
-  </script>
-
-</body>
-</html>
+  });
+});
