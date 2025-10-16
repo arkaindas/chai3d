@@ -1,98 +1,84 @@
-body {
-  background: #013220;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100vh;
-  font-family: 'Poppins', sans-serif;
-  color: #333;
+const canvas = document.getElementById("scratchCanvas");
+const ctx = canvas.getContext("2d");
+
+let isDrawing = false;
+let revealed = false;
+
+// Load pattern overlay
+const patternImg = new Image();
+patternImg.src = "data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' width='260' height='260'>\
+<g stroke='white' stroke-width='1' fill='none' opacity='0.15'>\
+<rect x='15' y='15' width='40' height='40' rx='4'/>\
+<circle cx='130' cy='70' r='18'/>\
+<rect x='180' y='30' width='50' height='30' rx='4'/>\
+</g></svg>";
+
+patternImg.onload = () => {
+  drawSurface();
+};
+
+function drawSurface() {
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = "#00a859";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.globalAlpha = 0.3;
+  ctx.drawImage(patternImg, 0, 0, canvas.width, canvas.height);
+  ctx.globalAlpha = 1.0;
 }
 
-.scratch-wrapper {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+function scratch(x, y) {
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.beginPath();
+  ctx.arc(x, y, 20, 0, Math.PI * 2);
+  ctx.fill();
+
+  checkReveal();
 }
 
-.circle-bg {
-  position: absolute;
-  width: 350px;
-  height: 350px;
-  border-radius: 50%;
-  background: radial-gradient(circle at center, #065f46 0%, #013220 80%);
-  z-index: 0;
-  animation: pulse 4s ease-in-out infinite;
+function getXY(e) {
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+  const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+  return { x, y };
 }
 
-@keyframes pulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.05); opacity: 0.8; }
-}
+// Check how much is scratched
+function checkReveal() {
+  if (revealed) return;
 
-.scratch-card {
-  position: relative;
-  width: 260px;
-  height: 260px;
-  border-radius: 16px;
-  background: #fff;
-  overflow: hidden;
-  z-index: 2;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-}
-
-.card-content {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  text-align: center;
-  opacity: 0.95;
-}
-
-.card-content .icon {
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
-}
-
-.card-content button {
-  margin-top: 1rem;
-  background: transparent;
-  border: 1px solid #444;
-  padding: 0.5rem 1.2rem;
-  border-radius: 6px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-.card-content button:hover {
-  background: #e8f5e9;
-}
-
-/* Peel/Fade animation */
-@keyframes peelOff {
-  0% {
-    transform: rotate(0deg) scale(1);
-    opacity: 1;
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let cleared = 0;
+  for (let i = 3; i < imageData.data.length; i += 4) {
+    if (imageData.data[i] === 0) cleared++;
   }
-  100% {
-    transform: rotate(15deg) translateY(-120%) scale(1.1);
-    opacity: 0;
+
+  const clearedPercent = cleared / (canvas.width * canvas.height) * 100;
+
+  if (clearedPercent > 70) {
+    revealed = true;
+    canvas.classList.add("revealed");
+    setTimeout(() => {
+      canvas.style.display = "none";
+    }, 1200);
   }
 }
 
-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border-radius: 16px;
-  cursor: pointer;
-  transition: opacity 0.6s ease;
-}
-canvas.revealed {
-  animation: peelOff 1.2s ease forwards;
-}
+// Event listeners
+canvas.addEventListener("mousedown", () => (isDrawing = true));
+canvas.addEventListener("mouseup", () => (isDrawing = false));
+canvas.addEventListener("mousemove", (e) => {
+  if (!isDrawing || revealed) return;
+  const { x, y } = getXY(e);
+  scratch(x, y);
+});
+
+canvas.addEventListener("touchstart", () => (isDrawing = true));
+canvas.addEventListener("touchend", () => (isDrawing = false));
+canvas.addEventListener("touchmove", (e) => {
+  if (!isDrawing || revealed) return;
+  const { x, y } = getXY(e);
+  scratch(x, y);
+  e.preventDefault();
+});
