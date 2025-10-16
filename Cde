@@ -1,79 +1,27 @@
-import { Loader } from "@googlemaps/js-api-loader";
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scratch Card</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
 
-document.addEventListener("DOMContentLoaded", () => {
-  const mapElement = document.getElementById("ez-map");
-  if (!mapElement) return;
+  <div class="scratch-wrapper">
+    <div class="circle-bg"></div>
 
-  const apiKey = mapElement.getAttribute("data-ez-api-key");
-  if (!apiKey) {
-    console.error("Google Maps API key not found in data-ez-api-key attribute");
-    return;
-  }
+    <div class="scratch-card">
+      <div class="card-content">
+        <div class="icon">⚡</div>
+        <p>Solar batteries can power your home at night — and reduce blackouts</p>
+        <button>LEARN MORE</button>
+      </div>
 
-  const loader = new Loader({
-    apiKey: apiKey,
-    version: "weekly",
-    libraries: ["places"] // ✅ need "places" for autocomplete
-  });
+      <canvas id="scratchCanvas" width="260" height="260"></canvas>
+    </div>
+  </div>
 
-  loader.load().then((google) => {
-    const originInput = document.getElementById("ez-search-origin");
-    const destinationInput = document.getElementById("ez-search-destination");
-    const form = document.getElementById("ez-locator_search-form");
-    const formError = document.getElementById("form-error");
-
-    if (!originInput || !destinationInput) {
-      console.warn("Origin/Destination inputs not found");
-      return;
-    }
-
-    // Attach Google Places Autocomplete
-    const originAutocomplete = new google.maps.places.Autocomplete(originInput, {
-      fields: ["place_id", "geometry", "formatted_address", "name"],
-      types: ["geocode"]
-    });
-
-    const destinationAutocomplete = new google.maps.places.Autocomplete(destinationInput, {
-      fields: ["place_id", "geometry", "formatted_address", "name"],
-      types: ["geocode"]
-    });
-
-    // Simple validation function
-    function validateForm() {
-      const originEmpty = originInput.value.trim() === "";
-      const destinationEmpty = destinationInput.value.trim() === "";
-
-      if (originEmpty || destinationEmpty) {
-        originInput.classList.toggle("error", originEmpty);
-        destinationInput.classList.toggle("error", destinationEmpty);
-        formError.classList.add("active");
-        return false;
-      } else {
-        originInput.classList.remove("error");
-        destinationInput.classList.remove("error");
-        formError.classList.remove("active");
-        return true;
-      }
-    }
-
-    // Live validation on typing
-    originInput.addEventListener("input", validateForm);
-    destinationInput.addEventListener("input", validateForm);
-
-    // Clear validation when a place is picked
-    originAutocomplete.addListener("place_changed", validateForm);
-    destinationAutocomplete.addListener("place_changed", validateForm);
-
-    // Validate on form submit
-    form.addEventListener("submit", (e) => {
-      if (!validateForm()) {
-        e.preventDefault();
-      } else {
-        console.log("Form valid. You can now use the place details.");
-        // Example: log the place objects
-        console.log("Origin place:", originAutocomplete.getPlace());
-        console.log("Destination place:", destinationAutocomplete.getPlace());
-      }
-    });
-  });
-});
+  <script src="script.js" type="module"></script>
+</body>
+</html>
