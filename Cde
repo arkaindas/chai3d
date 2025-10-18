@@ -1,119 +1,103 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Spin Wheel</title>
-  <style>
-    :root {
-      --bg-dark: #062a1a;
-      --bg-light: #0c3b25;
-      --green: #18c37a;
-      --white: #ffffff;
-    }
+export class SpinWheel {
+  constructor(canvasId, options = {}) {
+    this.canvas = document.getElementById(canvasId);
+    this.ctx = this.canvas.getContext('2d');
 
-    body {
-      background: radial-gradient(circle at center, var(--bg-light), var(--bg-dark));
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-      font-family: "Poppins", sans-serif;
-      color: var(--white);
-      overflow: hidden;
-    }
+    this.segments = options.segments || ["A", "B", "C", "D", "E"];
+    this.colors = options.colors || ["#18c37a", "#ffffff"];
+    this.onResult = options.onResult || (() => {});
 
-    .wheel-container {
-      position: relative;
-      width: 90vmin;
-      height: 90vmin;
-      max-width: 400px;
-      max-height: 400px;
-    }
+    this.rotation = 0;
+    this.isSpinning = false;
 
-    canvas {
-      width: 100%;
-      height: 100%;
-      border-radius: 50%;
-      background: radial-gradient(circle at center, #0e4d2d, #0a2a1a);
-      box-shadow: 0 0 30px rgba(0, 0, 0, 0.6) inset, 0 0 20px rgba(0, 0, 0, 0.5);
-    }
+    // Handle resizing responsively
+    this.resizeCanvas();
+    window.addEventListener('resize', () => this.resizeCanvas());
 
-    .center-btn {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      background: radial-gradient(circle at center, #ffffff, #d3d3d3);
-      border: none;
-      border-radius: 50%;
-      width: 20%;
-      aspect-ratio: 1/1;
-      font-weight: bold;
-      font-size: 1rem;
-      color: #000;
-      cursor: pointer;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-      transition: transform 0.2s ease;
-    }
+    this.draw();
+  }
 
-    .center-btn:hover {
-      transform: translate(-50%, -50%) scale(1.05);
-    }
+  resizeCanvas() {
+    const size = Math.min(this.canvas.parentElement.offsetWidth, 400);
+    this.canvas.width = size;
+    this.canvas.height = size;
+    this.size = size / 2;
+    this.draw();
+  }
 
-    .pointer {
-      position: absolute;
-      top: -10px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 0;
-      height: 0;
-      border-left: 15px solid transparent;
-      border-right: 15px solid transparent;
-      border-bottom: 25px solid #ffffff;
-      filter: drop-shadow(0 0 2px #000);
-    }
+  draw() {
+    const { ctx, size, segments, colors } = this;
+    ctx.clearRect(0, 0, size * 2, size * 2);
 
-    @media (max-width: 500px) {
-      .center-btn {
-        font-size: 0.9rem;
-      }
-      .pointer {
-        border-left: 10px solid transparent;
-        border-right: 10px solid transparent;
-        border-bottom: 20px solid #ffffff;
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="wheel-container">
-    <div class="pointer"></div>
-    <canvas id="wheel"></canvas>
-    <button id="spinBtn" class="center-btn">SPIN</button>
-  </div>
+    const anglePerSeg = (2 * Math.PI) / segments.length;
 
-  <script type="module">
-    import { SpinWheel } from './wheel.js';
+    segments.forEach((label, i) => {
+      const start = i * anglePerSeg;
+      const end = start + anglePerSeg;
 
-    const wheel = new SpinWheel('wheel', {
-      segments: [
-        "Tip of the Day",
-        "Trivia Time",
-        "Myth Buster",
-        "Test Your IQ",
-        "Learn Something New",
-        "Community Info"
-      ],
-      colors: ["#18c37a", "#ffffff"],
-      onResult: (value) => {
-        alert("🎉 You got: " + value);
-      }
+      ctx.beginPath();
+      ctx.moveTo(size, size);
+      ctx.arc(size, size, size, start, end);
+      ctx.fillStyle = colors[i % colors.length];
+      ctx.fill();
+
+      // Text
+      ctx.save();
+      ctx.translate(size, size);
+      ctx.rotate(start + anglePerSeg / 2);
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#000";
+      ctx.font = `${Math.max(size / 14, 10)}px Poppins`;
+      ctx.fillText(label, size - 10, 5);
+      ctx.restore();
     });
+  }
 
-    document.getElementById('spinBtn').addEventListener('click', () => wheel.spin());
-  </script>
-</body>
-</html>
+  spin() {
+    if (this.isSpinning) return;
+    this.isSpinning = true;
+
+    const duration = 4000; // ms
+    const spins = Math.random() * 5 + 5;
+    const finalAngle = spins * 360 + Math.random() * 360;
+    const start = performance.now();
+
+    const animate = (now) => {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const easeOut = 1 - Math.pow(1 - progress, 3);
+      const angle = finalAngle * easeOut;
+
+      this.rotation = angle * (Math.PI / 180);
+      this.drawRotated();
+
+      if (progress < 1) requestAnimationFrame(animate);
+      else {
+        this.isSpinning = false;
+        this.triggerResult();
+      }
+    };
+
+    requestAnimationFrame(animate);
+  }
+
+  drawRotated() {
+    const { ctx, canvas, size } = this;
+    ctx.save();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.translate(size, size);
+    ctx.rotate(this.rotation);
+    ctx.translate(-size, -size);
+    this.draw();
+    ctx.restore();
+  }
+
+  triggerResult() {
+    const segmentAngle = (2 * Math.PI) / this.segments.length;
+    const rotationFromTop =
+      (2 * Math.PI - (this.rotation % (2 * Math.PI))) % (2 * Math.PI);
+    const index = Math.floor(rotationFromTop / segmentAngle) % this.segments.length;
+    const value = this.segments[index];
+    this.onResult(value);
+  }
+}
