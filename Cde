@@ -3,54 +3,70 @@ export class SpinWheel {
     this.canvas = document.getElementById(canvasId);
     this.ctx = this.canvas.getContext("2d");
 
-    this.segments = options.segments || ["A", "B", "C", "D", "E"];
+    this.segments = options.segments || [
+      "Tip of the Day",
+      "Trivia Time",
+      "Myth Buster",
+      "Test Your IQ",
+      "Learn Something New",
+      "Community Info",
+    ];
     this.colors = options.colors || ["#18c37a", "#ffffff"];
     this.onResult = options.onResult || (() => {});
+    this.tickSound = options.tickSound !== false;
 
     this.rotation = 0;
+    this.angularVelocity = 0;
     this.isSpinning = false;
-    this.highlightIndex = null; // winner highlight index
+    this.highlightIndex = null;
+    this.glowActive = false;
+
+    this.lastTick = 0;
+    this.bounceOffset = 0;
 
     this.resizeCanvas();
     window.addEventListener("resize", () => this.resizeCanvas());
     this.draw();
+
+    // audio tick setup
+    if (this.tickSound) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      this.audioCtx = new AudioCtx();
+    }
   }
 
   resizeCanvas() {
     const size = Math.min(this.canvas.parentElement.offsetWidth, 400);
     this.canvas.width = size;
-    this.canvas.height = size;
+    this.canvas.height = size + 50;
     this.size = size / 2;
     this.draw();
   }
 
   draw() {
     const { ctx, size, segments, colors } = this;
-    ctx.clearRect(0, 0, size * 2, size * 2);
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     const anglePerSeg = (2 * Math.PI) / segments.length;
+
+    ctx.save();
+    ctx.translate(size, size + 25);
 
     segments.forEach((label, i) => {
       const start = i * anglePerSeg;
       const end = start + anglePerSeg;
 
-      // Highlight winner segment
-      if (this.highlightIndex === i) {
+      if (this.highlightIndex === i && this.glowActive) {
         ctx.shadowBlur = 25;
         ctx.shadowColor = "rgba(255, 223, 0, 0.8)";
-      } else {
-        ctx.shadowBlur = 0;
-      }
+      } else ctx.shadowBlur = 0;
 
-      // Draw slice
       ctx.beginPath();
-      ctx.moveTo(size, size);
-      ctx.arc(size, size, size, start, end);
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, size, start, end);
       ctx.fillStyle = colors[i % colors.length];
       ctx.fill();
 
-      // Draw text
       ctx.save();
-      ctx.translate(size, size);
       ctx.rotate(start + anglePerSeg / 2);
       ctx.textAlign = "right";
       ctx.fillStyle = "#000";
@@ -58,73 +74,134 @@ export class SpinWheel {
       ctx.fillText(label, size - 10, 5);
       ctx.restore();
     });
-    ctx.shadowBlur = 0; // reset
+
+    ctx.shadowBlur = 0;
+
+    // center button
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.2, 0, 2 * Math.PI);
+    ctx.fillStyle = this.glowActive ? "#ffe066" : "#fff";
+    ctx.fill();
+    ctx.strokeStyle = "#ccc";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = "#000";
+    ctx.font = `${Math.max(size / 10, 12)}px Poppins`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("SPIN", 0, 0);
+
+    ctx.restore();
+
+    // arrow pointer
+    ctx.save();
+    ctx.translate(size, 25 - this.bounceOffset);
+    ctx.beginPath();
+    ctx.moveTo(-10, 0);
+    ctx.lineTo(10, 0);
+    ctx.lineTo(0, 20);
+    ctx.closePath();
+    ctx.fillStyle = this.glowActive ? "#ffd700" : "#e63946";
+    ctx.shadowBlur = this.glowActive ? 25 : 0;
+    ctx.shadowColor = this.glowActive ? "rgba(255, 223, 0, 0.8)" : "transparent";
+    ctx.fill();
+    ctx.restore();
   }
 
   spin() {
     if (this.isSpinning) return;
     this.isSpinning = true;
     this.highlightIndex = null;
+    this.glowActive = false;
+    this.lastTick = 0;
 
-    const duration = 4000;
-    const spins = Math.random() * 5 + 5;
-    const finalAngle = spins * 360 + Math.random() * 360;
-    const start = performance.now();
+    // 🎯 realistic physics parameters
+    this.rotation = 0;
+    this.angularVelocity = (Math.random() * 0.35 + 0.35) * Math.PI; // initial speed
+    this.friction = 0.992 + Math.random() * 0.003; // slowdown rate
+    this.minVelocity = 0.002; // stop threshold
 
-    const animate = (now) => {
-      const elapsed = now - start;
-      const progress = Math.min(elapsed / duration, 1);
-      const easeOut = 1 - Math.pow(1 - progress, 3);
-      const angle = finalAngle * easeOut;
+    const animate = () => {
+      if (!this.isSpinning) return;
 
-      this.rotation = angle * (Math.PI / 180);
+      this.rotation += this.angularVelocity;
+      this.rotation %= 2 * Math.PI;
+      this.angularVelocity *= this.friction;
+
+      this.handleTick();
       this.drawRotated();
 
-      if (progress < 1) {
-        requestAnimationFrame(animate);
-      } else {
+      if (this.angularVelocity < this.minVelocity) {
         this.isSpinning = false;
         this.triggerResult();
+      } else {
+        requestAnimationFrame(animate);
       }
     };
 
     requestAnimationFrame(animate);
   }
 
+  handleTick() {
+    const segmentAngle = (2 * Math.PI) / this.segments.length;
+    const currentTick = Math.floor(this.rotation / segmentAngle);
+    if (currentTick !== this.lastTick) {
+      this.lastTick = currentTick;
+      this.playTick();
+      this.pointerBounce();
+    }
+  }
+
+  playTick() {
+    if (!this.audioCtx) return;
+    const osc = this.audioCtx.createOscillator();
+    const gain = this.audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(this.audioCtx.destination);
+    osc.frequency.value = 700 + Math.random() * 100;
+    gain.gain.setValueAtTime(0.1, this.audioCtx.currentTime);
+    osc.start();
+    osc.stop(this.audioCtx.currentTime + 0.05);
+  }
+
+  pointerBounce() {
+    this.bounceOffset = 3;
+    const decay = () => {
+      this.bounceOffset *= 0.65;
+      this.drawRotated();
+      if (this.bounceOffset > 0.1) requestAnimationFrame(decay);
+      else this.bounceOffset = 0;
+    };
+    decay();
+  }
+
   drawRotated() {
     const { ctx, canvas, size } = this;
     ctx.save();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.translate(size, size);
+    ctx.translate(size, size + 25);
     ctx.rotate(this.rotation);
-    ctx.translate(-size, -size);
+    ctx.translate(-size, -(size + 25));
     this.draw();
     ctx.restore();
   }
 
   triggerResult() {
     const segmentAngle = (2 * Math.PI) / this.segments.length;
-    let currentAngle = this.rotation % (2 * Math.PI);
-    let topAngle = (Math.PI / 2 - currentAngle + 2 * Math.PI) % (2 * Math.PI);
-    const index = Math.floor(topAngle / segmentAngle) % this.segments.length;
+    const correctedAngle = (Math.PI * 1.5 - this.rotation) % (2 * Math.PI);
+    const normalized = (correctedAngle + 2 * Math.PI) % (2 * Math.PI);
+    const index = Math.floor(normalized / segmentAngle) % this.segments.length;
     const value = this.segments[index];
 
     this.highlightIndex = index;
+    this.glowActive = true;
     this.drawRotated();
 
-    // 🔆 Animate glow for 1.5s
-    let glowStart = performance.now();
-    const glow = (now) => {
-      const t = (now - glowStart) / 1500;
-      if (t < 1) {
-        this.drawRotated();
-        requestAnimationFrame(glow);
-      } else {
-        this.highlightIndex = null;
-        this.drawRotated();
-        this.onResult(value);
-      }
-    };
-    requestAnimationFrame(glow);
+    setTimeout(() => {
+      this.glowActive = false;
+      this.drawRotated();
+      this.onResult(value);
+    }, 1500);
   }
 }
