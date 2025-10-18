@@ -1,84 +1,119 @@
-const canvas = document.getElementById("scratchCanvas");
-const ctx = canvas.getContext("2d");
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spin Wheel</title>
+  <style>
+    :root {
+      --bg-dark: #062a1a;
+      --bg-light: #0c3b25;
+      --green: #18c37a;
+      --white: #ffffff;
+    }
 
-let isDrawing = false;
-let revealed = false;
+    body {
+      background: radial-gradient(circle at center, var(--bg-light), var(--bg-dark));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      font-family: "Poppins", sans-serif;
+      color: var(--white);
+      overflow: hidden;
+    }
 
-// Load pattern overlay
-const patternImg = new Image();
-patternImg.src = "data:image/svg+xml;utf8,\
-<svg xmlns='http://www.w3.org/2000/svg' width='260' height='260'>\
-<g stroke='white' stroke-width='1' fill='none' opacity='0.15'>\
-<rect x='15' y='15' width='40' height='40' rx='4'/>\
-<circle cx='130' cy='70' r='18'/>\
-<rect x='180' y='30' width='50' height='30' rx='4'/>\
-</g></svg>";
+    .wheel-container {
+      position: relative;
+      width: 90vmin;
+      height: 90vmin;
+      max-width: 400px;
+      max-height: 400px;
+    }
 
-patternImg.onload = () => {
-  drawSurface();
-};
+    canvas {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: radial-gradient(circle at center, #0e4d2d, #0a2a1a);
+      box-shadow: 0 0 30px rgba(0, 0, 0, 0.6) inset, 0 0 20px rgba(0, 0, 0, 0.5);
+    }
 
-function drawSurface() {
-  ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = "#00a859";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+    .center-btn {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: radial-gradient(circle at center, #ffffff, #d3d3d3);
+      border: none;
+      border-radius: 50%;
+      width: 20%;
+      aspect-ratio: 1/1;
+      font-weight: bold;
+      font-size: 1rem;
+      color: #000;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+      transition: transform 0.2s ease;
+    }
 
-  ctx.globalAlpha = 0.3;
-  ctx.drawImage(patternImg, 0, 0, canvas.width, canvas.height);
-  ctx.globalAlpha = 1.0;
-}
+    .center-btn:hover {
+      transform: translate(-50%, -50%) scale(1.05);
+    }
 
-function scratch(x, y) {
-  ctx.globalCompositeOperation = "destination-out";
-  ctx.beginPath();
-  ctx.arc(x, y, 20, 0, Math.PI * 2);
-  ctx.fill();
+    .pointer {
+      position: absolute;
+      top: -10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 15px solid transparent;
+      border-right: 15px solid transparent;
+      border-bottom: 25px solid #ffffff;
+      filter: drop-shadow(0 0 2px #000);
+    }
 
-  checkReveal();
-}
+    @media (max-width: 500px) {
+      .center-btn {
+        font-size: 0.9rem;
+      }
+      .pointer {
+        border-left: 10px solid transparent;
+        border-right: 10px solid transparent;
+        border-bottom: 20px solid #ffffff;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wheel-container">
+    <div class="pointer"></div>
+    <canvas id="wheel"></canvas>
+    <button id="spinBtn" class="center-btn">SPIN</button>
+  </div>
 
-function getXY(e) {
-  const rect = canvas.getBoundingClientRect();
-  const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-  const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
-  return { x, y };
-}
+  <script type="module">
+    import { SpinWheel } from './wheel.js';
 
-// Check how much is scratched
-function checkReveal() {
-  if (revealed) return;
+    const wheel = new SpinWheel('wheel', {
+      segments: [
+        "Tip of the Day",
+        "Trivia Time",
+        "Myth Buster",
+        "Test Your IQ",
+        "Learn Something New",
+        "Community Info"
+      ],
+      colors: ["#18c37a", "#ffffff"],
+      onResult: (value) => {
+        alert("🎉 You got: " + value);
+      }
+    });
 
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  let cleared = 0;
-  for (let i = 3; i < imageData.data.length; i += 4) {
-    if (imageData.data[i] === 0) cleared++;
-  }
-
-  const clearedPercent = cleared / (canvas.width * canvas.height) * 100;
-
-  if (clearedPercent > 70) {
-    revealed = true;
-    canvas.classList.add("revealed");
-    setTimeout(() => {
-      canvas.style.display = "none";
-    }, 1200);
-  }
-}
-
-// Event listeners
-canvas.addEventListener("mousedown", () => (isDrawing = true));
-canvas.addEventListener("mouseup", () => (isDrawing = false));
-canvas.addEventListener("mousemove", (e) => {
-  if (!isDrawing || revealed) return;
-  const { x, y } = getXY(e);
-  scratch(x, y);
-});
-
-canvas.addEventListener("touchstart", () => (isDrawing = true));
-canvas.addEventListener("touchend", () => (isDrawing = false));
-canvas.addEventListener("touchmove", (e) => {
-  if (!isDrawing || revealed) return;
-  const { x, y } = getXY(e);
-  scratch(x, y);
-  e.preventDefault();
-});
+    document.getElementById('spinBtn').addEventListener('click', () => wheel.spin());
+  </script>
+</body>
+</html>
