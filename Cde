@@ -1,7 +1,7 @@
 export class SpinWheel {
   constructor(canvasId, options = {}) {
     this.canvas = document.getElementById(canvasId);
-    this.ctx = this.canvas.getContext('2d');
+    this.ctx = this.canvas.getContext("2d");
 
     this.segments = options.segments || ["A", "B", "C", "D", "E"];
     this.colors = options.colors || ["#18c37a", "#ffffff"];
@@ -9,9 +9,10 @@ export class SpinWheel {
 
     this.rotation = 0;
     this.isSpinning = false;
+    this.highlightIndex = null; // winner highlight index
 
     this.resizeCanvas();
-    window.addEventListener('resize', () => this.resizeCanvas());
+    window.addEventListener("resize", () => this.resizeCanvas());
     this.draw();
   }
 
@@ -26,19 +27,28 @@ export class SpinWheel {
   draw() {
     const { ctx, size, segments, colors } = this;
     ctx.clearRect(0, 0, size * 2, size * 2);
-
     const anglePerSeg = (2 * Math.PI) / segments.length;
 
     segments.forEach((label, i) => {
       const start = i * anglePerSeg;
       const end = start + anglePerSeg;
 
+      // Highlight winner segment
+      if (this.highlightIndex === i) {
+        ctx.shadowBlur = 25;
+        ctx.shadowColor = "rgba(255, 223, 0, 0.8)";
+      } else {
+        ctx.shadowBlur = 0;
+      }
+
+      // Draw slice
       ctx.beginPath();
       ctx.moveTo(size, size);
       ctx.arc(size, size, size, start, end);
       ctx.fillStyle = colors[i % colors.length];
       ctx.fill();
 
+      // Draw text
       ctx.save();
       ctx.translate(size, size);
       ctx.rotate(start + anglePerSeg / 2);
@@ -48,11 +58,13 @@ export class SpinWheel {
       ctx.fillText(label, size - 10, 5);
       ctx.restore();
     });
+    ctx.shadowBlur = 0; // reset
   }
 
   spin() {
     if (this.isSpinning) return;
     this.isSpinning = true;
+    this.highlightIndex = null;
 
     const duration = 4000;
     const spins = Math.random() * 5 + 5;
@@ -68,8 +80,9 @@ export class SpinWheel {
       this.rotation = angle * (Math.PI / 180);
       this.drawRotated();
 
-      if (progress < 1) requestAnimationFrame(animate);
-      else {
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
         this.isSpinning = false;
         this.triggerResult();
       }
@@ -91,14 +104,27 @@ export class SpinWheel {
 
   triggerResult() {
     const segmentAngle = (2 * Math.PI) / this.segments.length;
-
-    // Arrow is now on the SPIN button (center), pointing upward (0 radians)
-    const rotationFromArrow = (this.rotation % (2 * Math.PI));
-    const index = Math.floor(
-      ((2 * Math.PI - rotationFromArrow + segmentAngle / 2) % (2 * Math.PI)) / segmentAngle
-    ) % this.segments.length;
-
+    let currentAngle = this.rotation % (2 * Math.PI);
+    let topAngle = (Math.PI / 2 - currentAngle + 2 * Math.PI) % (2 * Math.PI);
+    const index = Math.floor(topAngle / segmentAngle) % this.segments.length;
     const value = this.segments[index];
-    this.onResult(value);
+
+    this.highlightIndex = index;
+    this.drawRotated();
+
+    // 🔆 Animate glow for 1.5s
+    let glowStart = performance.now();
+    const glow = (now) => {
+      const t = (now - glowStart) / 1500;
+      if (t < 1) {
+        this.drawRotated();
+        requestAnimationFrame(glow);
+      } else {
+        this.highlightIndex = null;
+        this.drawRotated();
+        this.onResult(value);
+      }
+    };
+    requestAnimationFrame(glow);
   }
 }
