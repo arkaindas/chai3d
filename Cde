@@ -1,209 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Wheel Spin</title>
 <style>
-  .wheel-wrapper {
+  body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    margin-top: 40px;
+    justify-content: center;
+    height: 100vh;
+    background: radial-gradient(circle, #002b20, #001510);
   }
 
   .wheel-container {
     position: relative;
-    width: min(90vw, 400px);
-    aspect-ratio: 1 / 1; /* always perfect circle */
-    margin: 0 auto;
+    width: 300px;
+    height: 300px;
+  }
+
+  .outer-border {
+    position: absolute;
+    top: -15px;
+    left: -15px;
+    right: -15px;
+    bottom: -15px;
     border-radius: 50%;
-    background: radial-gradient(circle at 30% 30%, #ffffff 0%, #d0d0d0 100%);
-    box-shadow: inset 0 0 25px rgba(0, 0, 0, 0.25),
-                0 6px 18px rgba(0, 0, 0, 0.3);
+    border: 6px solid #00ff99;
+    box-shadow: 0 0 20px #00ff99;
+  }
+
+  .inner-border {
+    position: absolute;
+    top: -7px;
+    left: -7px;
+    right: -7px;
+    bottom: -7px;
+    border-radius: 50%;
+    border: 4px solid #001c13;
   }
 
   canvas {
+    border-radius: 50%;
     width: 100%;
     height: 100%;
-    border-radius: 50%;
-    display: block;
   }
 
-  /* Top arrow */
-  .wheel-arrow {
+  #spin {
     position: absolute;
-    top: -16px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    border: 2px solid #000;
+    background: white;
+    font-weight: bold;
+    cursor: pointer;
+    z-index: 10;
+  }
+
+  #arrow {
+    position: absolute;
+    top: -20px;
     left: 50%;
     transform: translateX(-50%);
     width: 0;
     height: 0;
-    border-left: 14px solid transparent;
-    border-right: 14px solid transparent;
-    border-bottom: 24px solid #d62828;
-    z-index: 10;
-    filter: drop-shadow(0 2px 2px rgba(0,0,0,0.3));
-  }
-
-  .spin-btn {
-    margin-top: 15px;
-    padding: 10px 24px;
-    background: linear-gradient(180deg, #333, #111);
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: bold;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-    transition: 0.2s;
-  }
-  .spin-btn:hover {
-    background: linear-gradient(180deg, #444, #222);
-    transform: scale(1.05);
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-bottom: 20px solid #000;
+    z-index: 20;
   }
 </style>
-
-<div class="wheel-wrapper">
+</head>
+<body>
   <div class="wheel-container">
-    <div class="wheel-arrow"></div>
-    <canvas id="wheelCanvas"></canvas>
+    <div id="arrow"></div>
+    <div class="outer-border"></div>
+    <div class="inner-border"></div>
+    <canvas id="wheel" width="300" height="300"></canvas>
+    <button id="spin">SPIN</button>
   </div>
-  <button class="spin-btn" id="spinBtn">SPIN</button>
-</div>
+  <p id="result" style="color:white;margin-top:20px;font-size:18px;"></p>
 
 <script>
-class SpinWheel {
-  constructor(canvasId, options = {}) {
-    this.canvas = document.getElementById(canvasId);
-    this.ctx = this.canvas.getContext("2d");
+const wheel = document.getElementById("wheel");
+const ctx = wheel.getContext("2d");
+const spinBtn = document.getElementById("spin");
+const result = document.getElementById("result");
 
-    this.segments = options.segments || [
-      "Tip of the Day",
-      "Trivia Time",
-      "Myth Buster",
-      "Test Your IQ",
-      "Learn Something New",
-      "Community Info"
-    ];
-    this.colors = options.colors || ["#18c37a", "#ffffff"];
-    this.onResult = options.onResult || (() => {});
+const segments = [
+  "Tip of the day",
+  "Trivia Time",
+  "Myth buster",
+  "Test your IQ",
+  "Learn Something New",
+  "Community Hero"
+];
 
-    this.rotation = 0;
-    this.angularVelocity = 0;
-    this.isSpinning = false;
+const colors = ["#2ecc71", "#ffffff", "#2ecc71", "#ffffff", "#2ecc71", "#ffffff"];
 
-    this.resizeCanvas();
-    window.addEventListener("resize", () => this.resizeCanvas());
-    this.draw();
-  }
+let startAngle = 0;
+const arc = (2 * Math.PI) / segments.length;
+let spinTimeout = null;
 
-  resizeCanvas() {
-    const parent = this.canvas.parentElement;
-    const size = parent.offsetWidth;
-    this.canvas.width = size * 2;
-    this.canvas.height = size * 2;
-    this.size = size;
-    this.draw();
-  }
-
-  draw() {
-    const { ctx, size, segments, colors } = this;
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.save();
-    ctx.translate(size, size);
-
-    const anglePerSeg = (2 * Math.PI) / segments.length;
-    for (let i = 0; i < segments.length; i++) {
-      const start = i * anglePerSeg;
-      const end = start + anglePerSeg;
-
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.arc(0, 0, size - 15, start, end);
-      ctx.fillStyle = colors[i % colors.length];
-      ctx.fill();
-
-      // separator lines
-      ctx.strokeStyle = "#333";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // Text
-      ctx.save();
-      ctx.rotate(start + anglePerSeg / 2);
-      ctx.textAlign = "right";
-      ctx.fillStyle = "#000";
-      ctx.font = `${Math.max(size / 14, 10)}px Poppins, sans-serif`;
-      ctx.fillText(segments[i], size - 25, 5);
-      ctx.restore();
-    }
-
-    // center hub
+function drawWheel() {
+  for (let i = 0; i < segments.length; i++) {
+    const angle = startAngle + i * arc;
     ctx.beginPath();
-    ctx.arc(0, 0, size * 0.2, 0, 2 * Math.PI);
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = colors[i];
+    ctx.moveTo(150, 150);
+    ctx.arc(150, 150, 150, angle, angle + arc, false);
     ctx.fill();
-    ctx.strokeStyle = "#999";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    ctx.fillStyle = "#000";
-    ctx.font = `${Math.max(size / 10, 12)}px Poppins, sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("SPIN", 0, 0);
-
-    ctx.restore();
-  }
-
-  spin() {
-    if (this.isSpinning) return;
-    this.isSpinning = true;
-
-    this.rotation = 0;
-    this.angularVelocity = (Math.random() * 0.35 + 0.35) * Math.PI;
-    this.friction = 0.992 + Math.random() * 0.003;
-    this.minVelocity = 0.002;
-
-    const animate = () => {
-      if (!this.isSpinning) return;
-      this.rotation += this.angularVelocity;
-      this.rotation %= 2 * Math.PI;
-      this.angularVelocity *= this.friction;
-      this.drawRotated();
-
-      if (this.angularVelocity < this.minVelocity) {
-        this.isSpinning = false;
-        this.triggerResult();
-      } else {
-        requestAnimationFrame(animate);
-      }
-    };
-    requestAnimationFrame(animate);
-  }
-
-  drawRotated() {
-    const { ctx, canvas, size } = this;
     ctx.save();
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.translate(size, size);
-    ctx.rotate(this.rotation);
-    ctx.translate(-size, -size);
-    this.draw();
-    ctx.restore();
-  }
 
-  triggerResult() {
-    const segmentAngle = (2 * Math.PI) / this.segments.length;
-    const correctedAngle = (Math.PI * 1.5 - this.rotation) % (2 * Math.PI);
-    const normalized = (correctedAngle + 2 * Math.PI) % (2 * Math.PI);
-    const index = Math.floor(normalized / segmentAngle) % this.segments.length;
-    const value = this.segments[index];
-    this.onResult(value);
+    // Text styling
+    ctx.translate(150 + Math.cos(angle + arc / 2) * 100, 150 + Math.sin(angle + arc / 2) * 100);
+    ctx.rotate(angle + arc / 2);
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#000";
+    ctx.font = "bold 14px sans-serif";
+    wrapText(ctx, segments[i], -40, 0, 80, 16);
+    ctx.restore();
   }
 }
 
-const wheel = new SpinWheel("wheelCanvas", {
-  onResult: (val) => {
-    alert("You got: " + val);
-  },
-});
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  for (let n = 0; n < words.length; n++) {
+    const testLine = line + words[n] + " ";
+    const testWidth = ctx.measureText(testLine).width;
+    if (testWidth > maxWidth && n > 0) {
+      ctx.fillText(line, x, y);
+      line = words[n] + " ";
+      y += lineHeight;
+    } else {
+      line = testLine;
+    }
+  }
+  ctx.fillText(line, x, y);
+}
 
-document.getElementById("spinBtn").addEventListener("click", () => {
-  wheel.spin();
+drawWheel();
+
+let spinAngleStart = 0;
+let spinTime = 0;
+let spinTimeTotal = 0;
+
+function rotateWheel() {
+  spinTime += 20;
+  if (spinTime >= spinTimeTotal) {
+    stopRotateWheel();
+    return;
+  }
+  const spinAngle = spinAngleStart - easeOut(spinTime, 0, spinAngleStart, spinTimeTotal);
+  startAngle += (spinAngle * Math.PI) / 180;
+  drawWheel();
+  spinTimeout = requestAnimationFrame(rotateWheel);
+}
+
+function stopRotateWheel() {
+  cancelAnimationFrame(spinTimeout);
+  const degrees = (startAngle * 180) / Math.PI + 90;
+  const arcd = (360 / segments.length);
+  const index = Math.floor(((360 - (degrees % 360)) % 360) / arcd);
+  result.innerText = `Result: ${segments[index]}`;
+}
+
+function easeOut(t, b, c, d) {
+  const ts = (t /= d) * t;
+  const tc = ts * t;
+  return b + c * (tc + -3 * ts + 3 * t);
+}
+
+spinBtn.addEventListener("click", () => {
+  spinAngleStart = Math.random() * 1000 + 2000;
+  spinTime = 0;
+  spinTimeTotal = Math.random() * 3000 + 4000;
+  rotateWheel();
 });
 </script>
+</body>
+</html>
