@@ -1,14 +1,19 @@
-
 class WordGuessGame {
-  constructor(words) {
-    this.words = words; // array of {word, clue}
+  constructor(words, maxAttempts = 5) {
+    this.words = words;
+    this.maxAttempts = maxAttempts;
+    this.currentAttempts = maxAttempts;
     this.currentWord = '';
     this.currentClue = '';
+
+    // Elements
     this.wordBox = document.getElementById('word-box');
     this.clueBox = document.getElementById('clue');
     this.revealBtn = document.getElementById('reveal');
     this.tryNewBtn = document.getElementById('try-new');
+    this.attemptsBox = document.getElementById('attempts');
 
+    // Bind
     this.bindEvents();
     this.loadNewWord();
   }
@@ -19,8 +24,10 @@ class WordGuessGame {
   }
 
   loadNewWord() {
-    // Reset board
     this.wordBox.innerHTML = '';
+    this.currentAttempts = this.maxAttempts;
+    this.updateAttempts();
+
     const randomIndex = Math.floor(Math.random() * this.words.length);
     const selected = this.words[randomIndex];
     this.currentWord = selected.word.toUpperCase();
@@ -28,33 +35,83 @@ class WordGuessGame {
 
     this.clueBox.textContent = this.currentClue;
 
-    // Create letter boxes
+    // Choose a random index for prefilled hint letter
+    const hintIndex = Math.floor(Math.random() * this.currentWord.length);
+
     for (let i = 0; i < this.currentWord.length; i++) {
       const input = document.createElement('input');
       input.maxLength = 1;
+
+      // Prefill one random letter as hint
+      if (i === hintIndex) {
+        input.value = this.currentWord[i];
+        input.disabled = true;
+        input.classList.add('correct');
+      }
+
+      // Move to next input on typing
+      input.addEventListener('input', (e) => this.handleInput(e, i));
+
       this.wordBox.appendChild(input);
+    }
+
+    // Focus on first editable input
+    const firstInput = this.wordBox.querySelector('input:not(:disabled)');
+    if (firstInput) firstInput.focus();
+  }
+
+  handleInput(e, index) {
+    const inputs = this.wordBox.querySelectorAll('input');
+    const value = e.target.value.toUpperCase();
+
+    e.target.value = value; // force uppercase
+
+    if (value && index < inputs.length - 1) {
+      // Move to next editable input
+      let nextIndex = index + 1;
+      while (nextIndex < inputs.length && inputs[nextIndex].disabled) {
+        nextIndex++;
+      }
+      if (nextIndex < inputs.length) {
+        inputs[nextIndex].focus();
+      }
     }
   }
 
   revealWord() {
-    const inputs = this.wordBox.querySelectorAll('input');
-    const guess = Array.from(inputs).map(i => i.value.toUpperCase()).join('');
+    if (this.currentAttempts <= 0) return;
 
-    for (let i = 0; i < this.currentWord.length; i++) {
-      if (inputs[i].value) {
-        if (inputs[i].value.toUpperCase() === this.currentWord[i]) {
-          inputs[i].classList.add('correct');
+    const inputs = this.wordBox.querySelectorAll('input');
+    let guess = '';
+
+    inputs.forEach((input, i) => {
+      const val = input.value.toUpperCase();
+      guess += val || '_';
+
+      if (!input.disabled) {
+        if (val === this.currentWord[i]) {
+          input.classList.add('correct');
+          input.classList.remove('wrong');
         } else {
-          inputs[i].classList.add('wrong');
+          input.classList.add('wrong');
+          input.classList.remove('correct');
         }
       }
-    }
+    });
 
     if (guess === this.currentWord) {
       setTimeout(() => alert(`✅ Correct! The word is ${this.currentWord}`), 200);
     } else {
-      setTimeout(() => alert(`❌ Try again! The correct word was ${this.currentWord}`), 200);
+      this.currentAttempts--;
+      this.updateAttempts();
+      if (this.currentAttempts === 0) {
+        setTimeout(() => alert(`❌ Out of attempts! The word was ${this.currentWord}`), 200);
+      }
     }
+  }
+
+  updateAttempts() {
+    this.attemptsBox.textContent = `Attempts Remaining: ${this.currentAttempts}`;
   }
 }
 
@@ -68,62 +125,3 @@ const wordData = [
 ];
 
 const game = new WordGuessGame(wordData);
-
-<div class="game">
-  <h2>Word Guess</h2>
-  <div id="clue"></div>
-
-  <div id="word-box" class="word-box"></div>
-
-  <button id="reveal">REVEAL</button>
-  <button id="try-new">TRY NEW</button>
-</div>
-
-
-body {
-  background: #123;
-  color: white;
-  font-family: sans-serif;
-  text-align: center;
-  padding: 40px;
-}
-
-.word-box {
-  display: flex;
-  justify-content: center;
-  margin: 20px 0;
-  gap: 8px;
-}
-
-.word-box input {
-  width: 40px;
-  height: 50px;
-  font-size: 24px;
-  text-align: center;
-  text-transform: uppercase;
-  border: 2px solid #ccc;
-  border-radius: 6px;
-  background: #fff;
-  color: #000;
-}
-
-.word-box input.correct {
-  border-color: green;
-}
-
-.word-box input.wrong {
-  border-color: red;
-}
-
-button {
-  background: #2d8;
-  border: none;
-  padding: 10px 20px;
-  margin: 5px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: bold;
-}
-
-
-
