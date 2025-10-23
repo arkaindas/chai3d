@@ -1,28 +1,129 @@
-// Calculate wrapped text lines first, then center vertically
-const wrappedLines = this.getWrappedLines(ctx, segments[i], size * 0.4);
-const totalTextHeight = wrappedLines.length * (size / 12);
-const startY = -totalTextHeight / 2 + (size / 60); // small vertical adjust
 
-for (let l = 0; l < wrappedLines.length; l++) {
-  ctx.fillText(wrappedLines[l], size * 0.35, startY + l * (size / 12));
-}
+class WordGuessGame {
+  constructor(words) {
+    this.words = words; // array of {word, clue}
+    this.currentWord = '';
+    this.currentClue = '';
+    this.wordBox = document.getElementById('word-box');
+    this.clueBox = document.getElementById('clue');
+    this.revealBtn = document.getElementById('reveal');
+    this.tryNewBtn = document.getElementById('try-new');
 
+    this.bindEvents();
+    this.loadNewWord();
+  }
 
-// 🟢 Helper to calculate wrapped lines (used for vertical centering)
-getWrappedLines(ctx, text, maxWidth) {
-  const words = text.split(" ");
-  const lines = [];
-  let line = "";
-  for (let n = 0; n < words.length; n++) {
-    const testLine = line + words[n] + " ";
-    const testWidth = ctx.measureText(testLine).width;
-    if (testWidth > maxWidth && n > 0) {
-      lines.push(line.trim());
-      line = words[n] + " ";
-    } else {
-      line = testLine;
+  bindEvents() {
+    this.revealBtn.addEventListener('click', () => this.revealWord());
+    this.tryNewBtn.addEventListener('click', () => this.loadNewWord());
+  }
+
+  loadNewWord() {
+    // Reset board
+    this.wordBox.innerHTML = '';
+    const randomIndex = Math.floor(Math.random() * this.words.length);
+    const selected = this.words[randomIndex];
+    this.currentWord = selected.word.toUpperCase();
+    this.currentClue = selected.clue;
+
+    this.clueBox.textContent = this.currentClue;
+
+    // Create letter boxes
+    for (let i = 0; i < this.currentWord.length; i++) {
+      const input = document.createElement('input');
+      input.maxLength = 1;
+      this.wordBox.appendChild(input);
     }
   }
-  lines.push(line.trim());
-  return lines;
+
+  revealWord() {
+    const inputs = this.wordBox.querySelectorAll('input');
+    const guess = Array.from(inputs).map(i => i.value.toUpperCase()).join('');
+
+    for (let i = 0; i < this.currentWord.length; i++) {
+      if (inputs[i].value) {
+        if (inputs[i].value.toUpperCase() === this.currentWord[i]) {
+          inputs[i].classList.add('correct');
+        } else {
+          inputs[i].classList.add('wrong');
+        }
+      }
+    }
+
+    if (guess === this.currentWord) {
+      setTimeout(() => alert(`✅ Correct! The word is ${this.currentWord}`), 200);
+    } else {
+      setTimeout(() => alert(`❌ Try again! The correct word was ${this.currentWord}`), 200);
+    }
+  }
 }
+
+// Initialize game
+const wordData = [
+  { word: 'TURBINE', clue: 'Machine used to generate electricity from wind or water' },
+  { word: 'ENGINE', clue: 'Machine that converts fuel into motion' },
+  { word: 'BATTERY', clue: 'Device that stores electrical energy' },
+  { word: 'ROTOR', clue: 'Rotating part of a machine' },
+  { word: 'GENERATOR', clue: 'Converts mechanical energy into electrical energy' }
+];
+
+const game = new WordGuessGame(wordData);
+
+<div class="game">
+  <h2>Word Guess</h2>
+  <div id="clue"></div>
+
+  <div id="word-box" class="word-box"></div>
+
+  <button id="reveal">REVEAL</button>
+  <button id="try-new">TRY NEW</button>
+</div>
+
+
+body {
+  background: #123;
+  color: white;
+  font-family: sans-serif;
+  text-align: center;
+  padding: 40px;
+}
+
+.word-box {
+  display: flex;
+  justify-content: center;
+  margin: 20px 0;
+  gap: 8px;
+}
+
+.word-box input {
+  width: 40px;
+  height: 50px;
+  font-size: 24px;
+  text-align: center;
+  text-transform: uppercase;
+  border: 2px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+  color: #000;
+}
+
+.word-box input.correct {
+  border-color: green;
+}
+
+.word-box input.wrong {
+  border-color: red;
+}
+
+button {
+  background: #2d8;
+  border: none;
+  padding: 10px 20px;
+  margin: 5px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+
+
