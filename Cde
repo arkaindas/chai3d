@@ -1,23 +1,28 @@
-ctx.textAlign = "left";
-ctx.fillStyle = "#000";
-ctx.font = `${Math.max(size / 16, 10)}px Poppins, sans-serif`;
-this.wrapText(ctx, segments[i], size * 0.35, 0, size * 0.4, size / 12);
+// Calculate wrapped text lines first, then center vertically
+const wrappedLines = this.getWrappedLines(ctx, segments[i], size * 0.4);
+const totalTextHeight = wrappedLines.length * (size / 12);
+const startY = -totalTextHeight / 2 + (size / 60); // small vertical adjust
+
+for (let l = 0; l < wrappedLines.length; l++) {
+  ctx.fillText(wrappedLines[l], size * 0.35, startY + l * (size / 12));
+}
 
 
-// 🟢 New helper: wrap long text to fit within segment
-wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+// 🟢 Helper to calculate wrapped lines (used for vertical centering)
+getWrappedLines(ctx, text, maxWidth) {
   const words = text.split(" ");
+  const lines = [];
   let line = "";
   for (let n = 0; n < words.length; n++) {
     const testLine = line + words[n] + " ";
     const testWidth = ctx.measureText(testLine).width;
     if (testWidth > maxWidth && n > 0) {
-      ctx.fillText(line, x, y);
+      lines.push(line.trim());
       line = words[n] + " ";
-      y += lineHeight;
     } else {
       line = testLine;
     }
   }
-  ctx.fillText(line, x, y);
+  lines.push(line.trim());
+  return lines;
 }
