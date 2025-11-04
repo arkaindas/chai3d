@@ -5,20 +5,23 @@ class WordGuessGame {
     this.currentAttempts = maxAttempts;
     this.currentWord = '';
     this.currentClue = '';
+    this.currentFunFact = '';
 
     // Elements
     this.wordBox = document.getElementById('word-box');
     this.clueBox = document.getElementById('clue');
+    this.attemptsBox = document.getElementById('attempts');
+    this.submitBtn = document.getElementById('submit');
     this.revealBtn = document.getElementById('reveal');
     this.tryNewBtn = document.getElementById('try-new');
-    this.attemptsBox = document.getElementById('attempts');
 
-    // Bind
+    // Bind events
     this.bindEvents();
     this.loadNewWord();
   }
 
   bindEvents() {
+    this.submitBtn.addEventListener('click', () => this.validateAnswer());
     this.revealBtn.addEventListener('click', () => this.revealWord());
     this.tryNewBtn.addEventListener('click', () => this.loadNewWord());
   }
@@ -32,30 +35,30 @@ class WordGuessGame {
     const selected = this.words[randomIndex];
     this.currentWord = selected.word.toUpperCase();
     this.currentClue = selected.clue;
+    this.currentFunFact = selected.funFact;
 
-    this.clueBox.textContent = this.currentClue;
+    this.clueBox.innerHTML = `<p>${this.currentClue}</p>`;
 
-    // Choose a random index for prefilled hint letter
+    // Random hint letter
     const hintIndex = Math.floor(Math.random() * this.currentWord.length);
 
     for (let i = 0; i < this.currentWord.length; i++) {
       const input = document.createElement('input');
       input.maxLength = 1;
 
-      // Prefill one random letter as hint
+      // Prefilled hint
       if (i === hintIndex) {
         input.value = this.currentWord[i];
         input.disabled = true;
         input.classList.add('correct');
       }
 
-      // Move to next input on typing
+      // Move to next input automatically
       input.addEventListener('input', (e) => this.handleInput(e, i));
 
       this.wordBox.appendChild(input);
     }
 
-    // Focus on first editable input
     const firstInput = this.wordBox.querySelector('input:not(:disabled)');
     if (firstInput) firstInput.focus();
   }
@@ -63,11 +66,9 @@ class WordGuessGame {
   handleInput(e, index) {
     const inputs = this.wordBox.querySelectorAll('input');
     const value = e.target.value.toUpperCase();
-
-    e.target.value = value; // force uppercase
+    e.target.value = value;
 
     if (value && index < inputs.length - 1) {
-      // Move to next editable input
       let nextIndex = index + 1;
       while (nextIndex < inputs.length && inputs[nextIndex].disabled) {
         nextIndex++;
@@ -78,7 +79,7 @@ class WordGuessGame {
     }
   }
 
-  revealWord() {
+  validateAnswer() {
     if (this.currentAttempts <= 0) return;
 
     const inputs = this.wordBox.querySelectorAll('input');
@@ -100,14 +101,35 @@ class WordGuessGame {
     });
 
     if (guess === this.currentWord) {
-      setTimeout(() => alert(`✅ Correct! The word is ${this.currentWord}`), 200);
+      this.showFunFact();
     } else {
       this.currentAttempts--;
       this.updateAttempts();
+
       if (this.currentAttempts === 0) {
-        setTimeout(() => alert(`❌ Out of attempts! The word was ${this.currentWord}`), 200);
+        setTimeout(() => {
+          alert(`❌ Out of attempts! The word was ${this.currentWord}`);
+          this.revealWord();
+        }, 200);
       }
     }
+  }
+
+  revealWord() {
+    const inputs = this.wordBox.querySelectorAll('input');
+    for (let i = 0; i < this.currentWord.length; i++) {
+      inputs[i].value = this.currentWord[i];
+      inputs[i].classList.add('correct');
+      inputs[i].disabled = true;
+    }
+  }
+
+  showFunFact() {
+    this.clueBox.innerHTML = `
+      <div class="fun-fact">
+        <strong>Fun Fact:</strong> ${this.currentFunFact}
+      </div>
+    `;
   }
 
   updateAttempts() {
@@ -117,11 +139,26 @@ class WordGuessGame {
 
 // Initialize game
 const wordData = [
-  { word: 'TURBINE', clue: 'Machine used to generate electricity from wind or water' },
-  { word: 'ENGINE', clue: 'Machine that converts fuel into motion' },
-  { word: 'BATTERY', clue: 'Device that stores electrical energy' },
-  { word: 'ROTOR', clue: 'Rotating part of a machine' },
-  { word: 'GENERATOR', clue: 'Converts mechanical energy into electrical energy' }
+  {
+    word: 'TURBINE',
+    clue: 'Machine used to generate electricity from wind or water',
+    funFact: 'A single wind turbine can generate enough electricity to power over 1,500 homes for a year!'
+  },
+  {
+    word: 'ENGINE',
+    clue: 'Machine that converts fuel into motion',
+    funFact: 'The world’s first practical internal combustion engine was built in 1859!'
+  },
+  {
+    word: 'BATTERY',
+    clue: 'Device that stores electrical energy',
+    funFact: 'The first true battery was invented by Alessandro Volta in 1800.'
+  },
+  {
+    word: 'GENERATOR',
+    clue: 'Converts mechanical energy into electrical energy',
+    funFact: 'Generators rely on electromagnetic induction discovered by Michael Faraday.'
+  }
 ];
 
 const game = new WordGuessGame(wordData);
