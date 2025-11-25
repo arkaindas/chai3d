@@ -1,164 +1,119 @@
-class WordGuessGame {
-  constructor(words, maxAttempts = 5) {
-    this.words = words;
-    this.maxAttempts = maxAttempts;
-    this.currentAttempts = maxAttempts;
-    this.currentWord = '';
-    this.currentClue = '';
-    this.currentFunFact = '';
+<script>
+(function () {
+  // config
+  const ROTATION_DURATION_MS = 1600; // time for one full rotation (ms)
+  const SELECTOR = '.rotate-border';
 
-    // Elements
-    this.wordBox = document.getElementById('word-box');
-    this.clueBox = document.getElementById('clue');
-    this.attemptsBox = document.getElementById('attempts');
-    this.submitBtn = document.getElementById('submit');
-    this.revealBtn = document.getElementById('reveal');
-    this.tryNewBtn = document.getElementById('try-new');
-
-    // Bind events
-    this.bindEvents();
-    this.loadNewWord();
-  }
-
-  bindEvents() {
-    this.submitBtn.addEventListener('click', () => this.validateAnswer());
-    this.revealBtn.addEventListener('click', () => this.revealWord());
-    this.tryNewBtn.addEventListener('click', () => this.loadNewWord());
-  }
-
-  loadNewWord() {
-    this.wordBox.innerHTML = '';
-    this.currentAttempts = this.maxAttempts;
-    this.updateAttempts();
-
-    const randomIndex = Math.floor(Math.random() * this.words.length);
-    const selected = this.words[randomIndex];
-    this.currentWord = selected.word.toUpperCase();
-    this.currentClue = selected.clue;
-    this.currentFunFact = selected.funFact;
-
-    this.clueBox.innerHTML = `<p>${this.currentClue}</p>`;
-
-    // Random hint letter
-    const hintIndex = Math.floor(Math.random() * this.currentWord.length);
-
-    for (let i = 0; i < this.currentWord.length; i++) {
-      const input = document.createElement('input');
-      input.maxLength = 1;
-
-      // Prefilled hint
-      if (i === hintIndex) {
-        input.value = this.currentWord[i];
-        input.disabled = true;
-        input.classList.add('correct');
-      }
-
-      // Move to next input automatically
-      input.addEventListener('input', (e) => this.handleInput(e, i));
-
-      this.wordBox.appendChild(input);
-    }
-
-    const firstInput = this.wordBox.querySelector('input:not(:disabled)');
-    if (firstInput) firstInput.focus();
-  }
-
-  handleInput(e, index) {
-    const inputs = this.wordBox.querySelectorAll('input');
-    const value = e.target.value.toUpperCase();
-    e.target.value = value;
-
-    if (value && index < inputs.length - 1) {
-      let nextIndex = index + 1;
-      while (nextIndex < inputs.length && inputs[nextIndex].disabled) {
-        nextIndex++;
-      }
-      if (nextIndex < inputs.length) {
-        inputs[nextIndex].focus();
-      }
-    }
-  }
-
-  validateAnswer() {
-    if (this.currentAttempts <= 0) return;
-
-    const inputs = this.wordBox.querySelectorAll('input');
-    let guess = '';
-
-    inputs.forEach((input, i) => {
-      const val = input.value.toUpperCase();
-      guess += val || '_';
-
-      if (!input.disabled) {
-        if (val === this.currentWord[i]) {
-          input.classList.add('correct');
-          input.classList.remove('wrong');
-        } else {
-          input.classList.add('wrong');
-          input.classList.remove('correct');
-        }
-      }
+  // don't run if prefers-reduced-motion
+  const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+  if (mq && mq.matches) {
+    // set static angle fallback if you want, then exit
+    document.querySelectorAll(SELECTOR).forEach(el => {
+      el.style.setProperty('--angle', '35deg'); // static fallback
     });
+    return;
+  }
 
-    if (guess === this.currentWord) {
-      this.showFunFact();
-    } else {
-      this.currentAttempts--;
-      this.updateAttempts();
+  // animation state
+  let rafId = null;
+  let startTs = null;
+  let activeEl = null;
 
-      if (this.currentAttempts === 0) {
-        setTimeout(() => {
-          alert(`❌ Out of attempts! The word was ${this.currentWord}`);
-          this.revealWord();
-        }, 200);
-      }
+  function step(ts) {
+    if (!startTs) startTs = ts;
+    const elapsed = ts - startTs;
+    // compute angle 0..360 based on elapsed and rotation duration
+    const progress = (elapsed % ROTATION_DURATION_MS) / ROTATION_DURATION_MS;
+    const angle = progress * 360;
+    if (activeEl) {
+      activeEl.style.setProperty('--angle', angle + 'deg');
     }
+    rafId = window.requestAnimationFrame(step);
   }
 
-  revealWord() {
-    const inputs = this.wordBox.querySelectorAll('input');
-    for (let i = 0; i < this.currentWord.length; i++) {
-      inputs[i].value = this.currentWord[i];
-      inputs[i].classList.add('correct');
-      inputs[i].disabled = true;
+  function startRotation(el) {
+    if (rafId) return; // already running for some element
+    activeEl = el;
+    startTs = null;
+    rafId = window.requestAnimationFrame(step);
+  }
+
+  function stopRotation() {
+    if (rafId) {
+      window.cancelAnimationFrame(rafId);
+      rafId = null;
     }
+    startTs = null;
+    // keep the last angle (optional) or reset to initial
+    activeEl = null;
   }
 
-  showFunFact() {
-    this.clueBox.innerHTML = `
-      <div class="fun-fact">
-        <strong>Fun Fact:</strong> ${this.currentFunFact}
-      </div>
-    `;
+  // Setup event handlers for all matching elements
+  function init() {
+    const els = document.querySelectorAll(SELECTOR);
+    els.forEach(el => {
+      // on enter: reveal border and start rotation
+      const show = (e) => {
+        el.classList.add('border-visible');
+        startRotation(el);
+      };
+      // on leave: hide border and stop rotation
+      const hide = (e) => {
+        el.classList.remove('border-visible');
+        stopRotation();
+      };
+
+      el.addEventListener('mouseenter', show, {passive:true});
+      el.addEventListener('mouseleave', hide, {passive:true});
+      // touch support (touchstart to reveal, touchend/cancel to hide)
+      el.addEventListener('touchstart', (ev) => {
+        // don't let first tap navigate away — if you need actual click, let it pass through
+        show();
+      }, {passive:true});
+      el.addEventListener('touchend', hide, {passive:true});
+      el.addEventListener('touchcancel', hide, {passive:true});
+
+      // keyboard focus accessibility
+      el.addEventListener('focus', show);
+      el.addEventListener('blur', hide);
+    });
   }
 
-  updateAttempts() {
-    this.attemptsBox.textContent = `Attempts Remaining: ${this.currentAttempts}`;
+  // initialize when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+
+.rotate-border {
+  --angle: 0deg;                // updated from JS
+  box-sizing: border-box;
+  display: inline-block;
+  padding: 12px 28px;
+  background: transparent;      // must stay transparent
+  color: #fff;
+  font-size: 16px;
+  border-radius: 6px;
+  border: 0 solid transparent;  // keep style but width 0 so no border in normal state
+  border-image: linear-gradient(var(--angle), #FFF, #ffffff1a) 1;
+  transition: border-width 200ms ease, opacity 200ms ease;
+  cursor: pointer;
+
+  // When visible, border-width toggles so border appears (no layout shift due to box-sizing)
+  &.border-visible {
+    border-width: 3px;
+  }
+
+  // keyboard access: show on focus too
+  &:focus {
+    outline: none;
   }
 }
 
-// Initialize game
-const wordData = [
-  {
-    word: 'TURBINE',
-    clue: 'Machine used to generate electricity from wind or water',
-    funFact: 'A single wind turbine can generate enough electricity to power over 1,500 homes for a year!'
-  },
-  {
-    word: 'ENGINE',
-    clue: 'Machine that converts fuel into motion',
-    funFact: 'The world’s first practical internal combustion engine was built in 1859!'
-  },
-  {
-    word: 'BATTERY',
-    clue: 'Device that stores electrical energy',
-    funFact: 'The first true battery was invented by Alessandro Volta in 1800.'
-  },
-  {
-    word: 'GENERATOR',
-    clue: 'Converts mechanical energy into electrical energy',
-    funFact: 'Generators rely on electromagnetic induction discovered by Michael Faraday.'
-  }
-];
+@media (prefers-reduced-motion: reduce) {
+  .rotate-border { transition: border-width 120ms linear; }
+}
 
-const game = new WordGuessGame(wordData);
