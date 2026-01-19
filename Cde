@@ -1,119 +1,45 @@
-<script>
 (function () {
-  // config
-  const ROTATION_DURATION_MS = 1600; // time for one full rotation (ms)
-  const SELECTOR = '.rotate-border';
+  document.querySelectorAll('.js-enquire').forEach(wrapper => {
+    const btn = wrapper.querySelector('.enquire-btn');
+    const dropdown = wrapper.querySelector('.enquire-dropdown');
 
-  // don't run if prefers-reduced-motion
-  const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-  if (mq && mq.matches) {
-    // set static angle fallback if you want, then exit
-    document.querySelectorAll(SELECTOR).forEach(el => {
-      el.style.setProperty('--angle', '35deg'); // static fallback
-    });
-    return;
-  }
+    let closeTimer = null;
+    const isTouch = window.matchMedia('(hover: none)').matches;
 
-  // animation state
-  let rafId = null;
-  let startTs = null;
-  let activeEl = null;
-
-  function step(ts) {
-    if (!startTs) startTs = ts;
-    const elapsed = ts - startTs;
-    // compute angle 0..360 based on elapsed and rotation duration
-    const progress = (elapsed % ROTATION_DURATION_MS) / ROTATION_DURATION_MS;
-    const angle = progress * 360;
-    if (activeEl) {
-      activeEl.style.setProperty('--angle', angle + 'deg');
-    }
-    rafId = window.requestAnimationFrame(step);
-  }
-
-  function startRotation(el) {
-    if (rafId) return; // already running for some element
-    activeEl = el;
-    startTs = null;
-    rafId = window.requestAnimationFrame(step);
-  }
-
-  function stopRotation() {
-    if (rafId) {
-      window.cancelAnimationFrame(rafId);
-      rafId = null;
-    }
-    startTs = null;
-    // keep the last angle (optional) or reset to initial
-    activeEl = null;
-  }
-
-  // Setup event handlers for all matching elements
-  function init() {
-    const els = document.querySelectorAll(SELECTOR);
-    els.forEach(el => {
-      // on enter: reveal border and start rotation
-      const show = (e) => {
-        el.classList.add('border-visible');
-        startRotation(el);
-      };
-      // on leave: hide border and stop rotation
-      const hide = (e) => {
-        el.classList.remove('border-visible');
-        stopRotation();
+    /* ---------- DESKTOP HOVER ---------- */
+    if (!isTouch) {
+      const open = () => {
+        clearTimeout(closeTimer);
+        wrapper.classList.add('is-open');
+        btn.setAttribute('aria-expanded', 'true');
       };
 
-      el.addEventListener('mouseenter', show, {passive:true});
-      el.addEventListener('mouseleave', hide, {passive:true});
-      // touch support (touchstart to reveal, touchend/cancel to hide)
-      el.addEventListener('touchstart', (ev) => {
-        // don't let first tap navigate away — if you need actual click, let it pass through
-        show();
-      }, {passive:true});
-      el.addEventListener('touchend', hide, {passive:true});
-      el.addEventListener('touchcancel', hide, {passive:true});
+      const close = () => {
+        closeTimer = setTimeout(() => {
+          wrapper.classList.remove('is-open');
+          btn.setAttribute('aria-expanded', 'false');
+        }, 120); // gap tolerance
+      };
 
-      // keyboard focus accessibility
-      el.addEventListener('focus', show);
-      el.addEventListener('blur', hide);
-    });
-  }
+      btn.addEventListener('mouseenter', open);
+      dropdown.addEventListener('mouseenter', open);
 
-  // initialize when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
+      btn.addEventListener('mouseleave', close);
+      dropdown.addEventListener('mouseleave', close);
+    }
+
+    /* ---------- MOBILE CLICK ---------- */
+    if (isTouch) {
+      btn.addEventListener('click', e => {
+        e.preventDefault();
+        wrapper.classList.toggle('is-open');
+      });
+
+      document.addEventListener('click', e => {
+        if (!wrapper.contains(e.target)) {
+          wrapper.classList.remove('is-open');
+        }
+      });
+    }
+  });
 })();
-</script>
-
-.rotate-border {
-  --angle: 0deg;                // updated from JS
-  box-sizing: border-box;
-  display: inline-block;
-  padding: 12px 28px;
-  background: transparent;      // must stay transparent
-  color: #fff;
-  font-size: 16px;
-  border-radius: 6px;
-  border: 0 solid transparent;  // keep style but width 0 so no border in normal state
-  border-image: linear-gradient(var(--angle), #FFF, #ffffff1a) 1;
-  transition: border-width 200ms ease, opacity 200ms ease;
-  cursor: pointer;
-
-  // When visible, border-width toggles so border appears (no layout shift due to box-sizing)
-  &.border-visible {
-    border-width: 3px;
-  }
-
-  // keyboard access: show on focus too
-  &:focus {
-    outline: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rotate-border { transition: border-width 120ms linear; }
-}
-
