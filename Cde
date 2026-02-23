@@ -1,24 +1,47 @@
-<header class="site-header">Header</header>
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
 
-<main class="scroll-wrapper">
+.site-header {
+  position: fixed;
+  top: 0;
+  width: 100%;
+  height: 70px;
+  background: white;
+  z-index: 100;
+}
 
-  <section class="panel panel-1">
-    <img src="image1.webp" class="img1" />
-    <div class="texts">
-      <h2>First Message</h2>
-      <h2>Second Message</h2>
-      <h2>Third Message</h2>
-    </div>
-  </section>
+.scroll-wrapper {
+  position: relative;
+}
 
-  <section class="panel panel-2">
-    <img src="image2.webp" class="img2" />
-    <img src="image3.webp" class="img3" />
-  </section>
+.panel {
+  position: relative;
+  height: 100vh;
+  overflow: hidden;
+}
 
-  <section class="panel panel-3">
-    <img src="image4.webp" class="img4" />
-    <img src="image5.webp" class="img5" />
-  </section>
+.panel img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  will-change: transform, opacity;
+}
 
-</main>
+.texts {
+  position: absolute;
+  top: 50%;
+  left: 8%;
+  transform: translateY(-50%);
+  z-index: 5;
+}
+
+.texts h2 {
+  position: absolute;
+  opacity: 0;
+  margin: 0;
+}
