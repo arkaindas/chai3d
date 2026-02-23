@@ -1,151 +1,24 @@
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<header class="site-header">Header</header>
 
+<main class="scroll-wrapper">
 
-// ===============================
-// GSAP Production Scroll Setup
-// ===============================
+  <section class="panel panel-1">
+    <img src="image1.webp" class="img1" />
+    <div class="texts">
+      <h2>First Message</h2>
+      <h2>Second Message</h2>
+      <h2>Third Message</h2>
+    </div>
+  </section>
 
-document.addEventListener("DOMContentLoaded", function () {
+  <section class="panel panel-2">
+    <img src="image2.webp" class="img2" />
+    <img src="image3.webp" class="img3" />
+  </section>
 
-  if (!window.gsap) return;
+  <section class="panel panel-3">
+    <img src="image4.webp" class="img4" />
+    <img src="image5.webp" class="img5" />
+  </section>
 
-  gsap.registerPlugin(ScrollTrigger);
-
-  // Improve mobile stability
-  ScrollTrigger.config({
-    ignoreMobileResize: true
-  });
-
-  // Optional: smoother scrubbing feel
-  gsap.ticker.lagSmoothing(0);
-
-  // ===============================
-  // Header Hide Animation
-  // ===============================
-
-  const header = document.querySelector(".site-header");
-
-  if (header) {
-    gsap.to(header, {
-      yPercent: -100,
-      ease: "none",
-      scrollTrigger: {
-        trigger: ".scene-text",
-        start: "top top",
-        end: "bottom top",
-        scrub: true
-      }
-    });
-  }
-
-  // ===============================
-  // Scene 1 – Text Cycle
-  // ===============================
-
-  const sceneText = document.querySelector(".scene-text");
-
-  if (sceneText) {
-
-    const texts = sceneText.querySelectorAll("h2");
-
-    const textTimeline = gsap.timeline({
-      scrollTrigger: {
-        trigger: sceneText,
-        start: "top top",
-        end: "+=200%",
-        scrub: true,
-        pin: true,
-        anticipatePin: 1
-      }
-    });
-
-    texts.forEach((text) => {
-      textTimeline
-        .to(text, { opacity: 1, duration: 1 })
-        .to(text, { opacity: 0, duration: 1 });
-    });
-  }
-
-  // ===============================
-  // Scene 2 – Image Fade Swap
-  // ===============================
-
-  const sceneFade = document.querySelector(".scene-fade");
-
-  if (sceneFade) {
-
-    const baseImg = sceneFade.querySelector("img:first-child");
-    const overlayImg = sceneFade.querySelector(".overlay");
-
-    gsap.timeline({
-      scrollTrigger: {
-        trigger: sceneFade,
-        start: "top top",
-        end: "+=150%",
-        scrub: true,
-        pin: true
-      }
-    })
-    .from(baseImg, {
-      yPercent: 100,
-      ease: "none"
-    })
-    .to(baseImg, {
-      opacity: 0,
-      ease: "none"
-    })
-    .from(overlayImg, {
-      opacity: 0,
-      ease: "none"
-    });
-  }
-
-  // ===============================
-  // Scene 3 – Overlay + Dark Mode
-  // ===============================
-
-  const sceneDark = document.querySelector(".scene-dark");
-
-  if (sceneDark) {
-
-    const overlay = sceneDark.querySelector(".overlay");
-
-    gsap.timeline({
-      scrollTrigger: {
-        trigger: sceneDark,
-        start: "top top",
-        end: "+=150%",
-        scrub: true,
-        pin: true
-      }
-    })
-    .from(overlay, {
-      yPercent: 100,
-      ease: "none"
-    })
-    .to(sceneDark, {
-      backgroundColor: "#000",
-      ease: "none"
-    });
-  }
-
-  // ===============================
-  // Mobile Optimization
-  // ===============================
-
-  ScrollTrigger.matchMedia({
-
-    "(max-width: 768px)": function () {
-
-      ScrollTrigger.getAll().forEach(trigger => {
-        if (trigger.vars.end && typeof trigger.vars.end === "string") {
-          trigger.vars.end = "+=120%";
-        }
-      });
-
-    }
-
-  });
-
-});
+</main>
