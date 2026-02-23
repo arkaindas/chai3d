@@ -1,87 +1,159 @@
-document.addEventListener("DOMContentLoaded", function () {
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GSAP Scroll Story</title>
 
-  gsap.registerPlugin(ScrollTrigger);
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  font-family: sans-serif;
+}
 
-  ScrollTrigger.config({
-    ignoreMobileResize: true
-  });
+.site-header {
+  position: fixed;
+  top: 0;
+  width: 100%;
+  height: 70px;
+  background: white;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
 
-  // ------------------------
-  // Hide Header
-  // ------------------------
+.scroll-wrapper {
+  position: relative;
+  height: 100vh;
+}
 
-  gsap.to(".site-header", {
-    yPercent: -100,
-    ease: "none",
-    scrollTrigger: {
-      trigger: ".scroll-wrapper",
-      start: "top top",
-      end: "bottom top",
-      scrub: true
-    }
-  });
+.panel {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
 
-  // ------------------------
-  // Master Timeline
-  // ------------------------
+.panel img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 
-  const master = gsap.timeline({
-    scrollTrigger: {
-      trigger: ".scroll-wrapper",
-      start: "top top",
-      end: "+=500%",
-      scrub: true,
-      pin: true,
-      anticipatePin: 1
-    }
-  });
+.texts {
+  position: absolute;
+  top: 50%;
+  left: 10%;
+  transform: translateY(-50%);
+  z-index: 5;
+}
 
-  // ========================
-  // Scene 1 - Text cycle
-  // ========================
+.texts h2 {
+  position: absolute;
+  opacity: 0;
+  margin: 0;
+  color: white;
+  font-size: 40px;
+}
 
-  const texts = gsap.utils.toArray(".panel-1 h2");
+/* Initial states */
+.panel-2,
+.panel-3 {
+  opacity: 0;
+}
 
-  texts.forEach((text) => {
-    master
-      .to(text, { opacity: 1, duration: 0.8 })
-      .to(text, { opacity: 0, duration: 0.8 });
-  });
+.panel-2 .img3,
+.panel-3 .img5 {
+  opacity: 0;
+}
+</style>
+</head>
+<body>
 
-  // ========================
-  // Scene 2 - Image transition
-  // ========================
+<header class="site-header">HEADER</header>
 
-  master
-    .from(".img2", {
-      yPercent: 100,
-      duration: 1.5
-    })
-    .to(".img2", {
-      opacity: 0,
-      duration: 1.2
-    })
-    .to(".img3", {
-      opacity: 1,
-      duration: 1.2
-    });
+<div class="scroll-wrapper">
 
-  // ========================
-  // Scene 3 - Overlay + Dark
-  // ========================
+  <!-- Panel 1 -->
+  <section class="panel panel-1">
+    <img src="https://picsum.photos/id/1018/1920/1080" />
+    <div class="texts">
+      <h2>First Message</h2>
+      <h2>Second Message</h2>
+      <h2>Third Message</h2>
+    </div>
+  </section>
 
-  master
-    .from(".img5", {
-      yPercent: 100,
-      duration: 1.5
-    })
-    .to(".img5", {
-      opacity: 1,
-      duration: 1.2
-    })
-    .to(".panel-3", {
-      backgroundColor: "#000",
-      duration: 1.5
-    });
+  <!-- Panel 2 -->
+  <section class="panel panel-2">
+    <img src="https://picsum.photos/id/1015/1920/1080" class="img2"/>
+    <img src="https://picsum.photos/id/1016/1920/1080" class="img3"/>
+  </section>
 
+  <!-- Panel 3 -->
+  <section class="panel panel-3">
+    <img src="https://picsum.photos/id/1020/1920/1080" class="img4"/>
+    <img src="https://picsum.photos/id/1024/1920/1080" class="img5"/>
+  </section>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+
+<script>
+gsap.registerPlugin(ScrollTrigger);
+
+const master = gsap.timeline({
+  scrollTrigger: {
+    trigger: ".scroll-wrapper",
+    start: "top top",
+    end: "+=800%",
+    scrub: true,
+    pin: true
+  }
 });
+
+// Hide header
+gsap.to(".site-header", {
+  yPercent: -100,
+  scrollTrigger: {
+    trigger: ".scroll-wrapper",
+    start: "top top",
+    end: "bottom top",
+    scrub: true
+  }
+});
+
+// Panel 1 text cycle
+gsap.utils.toArray(".panel-1 h2").forEach(text => {
+  master
+    .to(text, { opacity: 1, duration: 1 })
+    .to(text, { opacity: 0, duration: 1 });
+});
+
+// Switch to Panel 2
+master
+  .to(".panel-1", { opacity: 0, duration: 1 })
+  .to(".panel-2", { opacity: 1, duration: 1 })
+
+  .from(".img2", { yPercent: 100, duration: 2 })
+  .to(".img2", { opacity: 0, duration: 2 })
+  .to(".img3", { opacity: 1, duration: 2 })
+
+// Switch to Panel 3
+  .to(".panel-2", { opacity: 0, duration: 1 })
+  .to(".panel-3", { opacity: 1, duration: 1 })
+
+  .from(".img5", { yPercent: 100, duration: 2 })
+  .to(".panel-3", { backgroundColor: "#000", duration: 2 });
+
+</script>
+
+</body>
+</html>
