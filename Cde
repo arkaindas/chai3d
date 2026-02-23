@@ -6,9 +6,13 @@ document.addEventListener("DOMContentLoaded", function () {
     ignoreMobileResize: true
   });
 
-  // Hide header
+  // ------------------------
+  // Hide Header
+  // ------------------------
+
   gsap.to(".site-header", {
     yPercent: -100,
+    ease: "none",
     scrollTrigger: {
       trigger: ".scroll-wrapper",
       start: "top top",
@@ -17,43 +21,67 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
-  // MASTER TIMELINE (Single Pin)
+  // ------------------------
+  // Master Timeline
+  // ------------------------
+
   const master = gsap.timeline({
     scrollTrigger: {
       trigger: ".scroll-wrapper",
       start: "top top",
-      end: "+=400%",
+      end: "+=500%",
       scrub: true,
       pin: true,
       anticipatePin: 1
     }
   });
 
-  // -----------------
-  // Scene 1 - Text
-  // -----------------
+  // ========================
+  // Scene 1 - Text cycle
+  // ========================
 
-  gsap.utils.toArray(".panel-1 h2").forEach(text => {
+  const texts = gsap.utils.toArray(".panel-1 h2");
+
+  texts.forEach((text) => {
     master
-      .to(text, { opacity: 1, duration: 1 })
-      .to(text, { opacity: 0, duration: 1 });
+      .to(text, { opacity: 1, duration: 0.8 })
+      .to(text, { opacity: 0, duration: 0.8 });
   });
 
-  // -----------------
+  // ========================
   // Scene 2 - Image transition
-  // -----------------
+  // ========================
 
   master
-    .from(".img2", { yPercent: 100, duration: 2 })
-    .to(".img2", { opacity: 0, duration: 2 })
-    .from(".img3", { opacity: 0, duration: 2 });
+    .from(".img2", {
+      yPercent: 100,
+      duration: 1.5
+    })
+    .to(".img2", {
+      opacity: 0,
+      duration: 1.2
+    })
+    .to(".img3", {
+      opacity: 1,
+      duration: 1.2
+    });
 
-  // -----------------
+  // ========================
   // Scene 3 - Overlay + Dark
-  // -----------------
+  // ========================
 
   master
-    .from(".img5", { yPercent: 100, duration: 2 })
-    .to(".panel-3", { backgroundColor: "#000", duration: 2 });
+    .from(".img5", {
+      yPercent: 100,
+      duration: 1.5
+    })
+    .to(".img5", {
+      opacity: 1,
+      duration: 1.2
+    })
+    .to(".panel-3", {
+      backgroundColor: "#000",
+      duration: 1.5
+    });
 
 });
