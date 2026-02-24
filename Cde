@@ -27,9 +27,9 @@
   ::-webkit-scrollbar-track { background: var(--dark); }
   ::-webkit-scrollbar-thumb { background: var(--gold); }
 
-  /* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+  /* ════════════════════════════════════
      HEADER
-  \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
+  ════════════════════════════════════ */
   #site-header {
     position: fixed;
     top: 0; left: 0; right: 0;
@@ -62,9 +62,9 @@
   }
   nav a:hover { color: var(--gold); }
 
-  /* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-     SECTION 1 \u2014 BANNER IMAGE
-  \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
+  /* ════════════════════════════════════
+     SECTION 1 — BANNER IMAGE
+  ════════════════════════════════════ */
   #scene1 {
     height: 500vh;
     position: relative;
@@ -88,7 +88,6 @@
     will-change: transform, opacity;
   }
 
-  /* left-side dark gradient for text legibility */
   .s1-gradient {
     position: absolute;
     inset: 0;
@@ -101,7 +100,6 @@
     z-index: 1;
   }
 
-  /* text panels */
   .s1-texts {
     position: absolute;
     left: 5vw;
@@ -157,7 +155,6 @@
     letter-spacing: 0.02em;
   }
 
-  /* decorative side rule */
   .s1-texts::before {
     content: '';
     position: absolute;
@@ -169,7 +166,6 @@
     opacity: 0.45;
   }
 
-  /* scroll hint */
   .scroll-hint {
     position: absolute;
     bottom: 2.5rem;
@@ -204,9 +200,9 @@
     100% { transform: scaleY(1); transform-origin: bottom; opacity: 0; }
   }
 
-  /* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-     SECTION 2 \u2014 VIDEO
-  \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
+  /* ════════════════════════════════════
+     SECTION 2 — VIDEO
+  ════════════════════════════════════ */
   #scene2 {
     height: 480vh;
     position: relative;
@@ -246,7 +242,6 @@
     z-index: 1;
   }
 
-  /* centred text panels over video */
   .s2-texts {
     position: absolute;
     inset: 0;
@@ -301,7 +296,6 @@
     margin: 0 auto;
   }
 
-  /* end spacer */
   .end-block {
     height: 100vh;
     background: var(--dark);
@@ -310,9 +304,9 @@
 </head>
 <body>
 
-<!-- \u2550\u2550\u2550 HEADER \u2550\u2550\u2550 -->
+<!-- ═══ HEADER ═══ -->
 <header id="site-header">
-  <div class="logo">LUMI\u00c8RE</div>
+  <div class="logo">LUMIÈRE</div>
   <nav>
     <a href="#">Work</a>
     <a href="#">About</a>
@@ -320,9 +314,9 @@
   </nav>
 </header>
 
-<!-- \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-     SECTION 1 \u2014 Full-width banner + 2 text panels
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 -->
+<!-- ══════════════════════════════════════════════════
+     SECTION 1 — Full-width banner + 2 text panels
+══════════════════════════════════════════════════ -->
 <section id="scene1">
   <div class="s1-sticky" id="s1-sticky">
 
@@ -339,11 +333,250 @@
       <div class="s1-panel" id="s1p1">
         <span class="tag">Chapter One</span>
         <h2>Where <em>Light</em><br>First Breaks</h2>
-        <p>Before the world stirs, a moment hangs suspended \u2014<br>
+        <p>Before the world stirs, a moment hangs suspended —<br>
            poised between deep darkness and the very first amber.</p>
       </div>
 
       <div class="s1-panel" id="s1p2">
         <span class="tag">Chapter Two</span>
         <h2>Into the<br><em>Infinite</em> Blue</h2>
-        <p>Mountains draw breath. Rivers
+        <p>Mountains draw breath. Rivers pause mid-flow.<br>
+           Then one ray cracks the ridge — and everything exhales.</p>
+      </div>
+
+    </div>
+
+    <div class="scroll-hint" id="scroll-hint">
+      <span>Scroll</span>
+      <div class="scroll-line"></div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     SECTION 2 — Full-width video + 2 text panels
+══════════════════════════════════════════════════ -->
+<section id="scene2">
+  <div class="s2-sticky">
+
+    <div class="s2-video-wrap">
+      <!--
+        Replace src with your own .mp4 file:
+          src="./your-landscape-video.mp4"
+      -->
+      <video
+        id="scene2-video"
+        src="https://www.w3schools.com/html/mov_bbb.mp4"
+        muted
+        playsinline
+        preload="auto"
+        loop
+      ></video>
+    </div>
+
+    <div class="s2-gradient"></div>
+
+    <div class="s2-texts">
+
+      <div class="s2-panel" id="s2p1">
+        <span class="tag">Motion</span>
+        <h2>Movement in<br><em>Stillness</em></h2>
+        <p>Even when the land holds its shape, the light above it never stops —
+           dragging gold and shadow across every surface it touches.</p>
+      </div>
+
+      <div class="s2-panel" id="s2p2">
+        <span class="tag">Passage</span>
+        <h2>A World<br><em>Passing By</em></h2>
+        <p>Every frame that rolls is a moment that will never exist again —
+           captured here, held briefly, then released back into time.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<div class="end-block"></div>
+
+<!-- ═══════════════════ GSAP ═══════════════════ -->
+<script>
+gsap.registerPlugin(ScrollTrigger);
+
+/* ── initial states ── */
+gsap.set('#s1p1', { opacity: 1, y: 0 });
+
+/* ─────────────────────────────────
+   HEADER — hide on scroll start
+───────────────────────────────── */
+gsap.to('#site-header', {
+  yPercent: -115,
+  ease: 'power2.inOut',
+  scrollTrigger: {
+    trigger: '#scene1',
+    start: 'top+=90 top',
+    end:   'top+=270 top',
+    scrub: 0.9,
+  }
+});
+
+gsap.to('#scroll-hint', {
+  autoAlpha: 0,
+  scrollTrigger: {
+    trigger: '#scene1',
+    start: 'top+=50 top',
+    end:   'top+=150 top',
+    scrub: true,
+  }
+});
+
+/* ─────────────────────────────────
+   SCENE 1 — Panel 1 out
+───────────────────────────────── */
+gsap.to('#s1p1', {
+  opacity: 0, y: -46,
+  ease: 'power2.in',
+  scrollTrigger: {
+    trigger: '#scene1',
+    start: '18% top',
+    end:   '32% top',
+    scrub: 1,
+  }
+});
+
+/* ─────────────────────────────────
+   SCENE 1 — Panel 2 in
+───────────────────────────────── */
+gsap.fromTo('#s1p2',
+  { opacity: 0, y: 52 },
+  {
+    opacity: 1, y: 0,
+    ease: 'power2.out',
+    scrollTrigger: {
+      trigger: '#scene1',
+      start: '30% top',
+      end:   '46% top',
+      scrub: 1,
+    }
+  }
+);
+
+/* ─────────────────────────────────
+   SCENE 1 — Panel 2 out
+───────────────────────────────── */
+gsap.to('#s1p2', {
+  opacity: 0, y: -46,
+  ease: 'power2.in',
+  scrollTrigger: {
+    trigger: '#scene1',
+    start: '60% top',
+    end:   '74% top',
+    scrub: 1,
+  }
+});
+
+/* ─────────────────────────────────
+   SCENE 1 — Banner exits upward
+───────────────────────────────── */
+gsap.to('#s1-banner', {
+  yPercent: -20,
+  scale: 0.93,
+  ease: 'power2.inOut',
+  scrollTrigger: {
+    trigger: '#scene1',
+    start: '76% top',
+    end:   'bottom top',
+    scrub: 1.4,
+  }
+});
+
+gsap.to('#s1-sticky', {
+  autoAlpha: 0,
+  ease: 'power1.in',
+  scrollTrigger: {
+    trigger: '#scene1',
+    start: '84% top',
+    end:   'bottom top',
+    scrub: 1,
+  }
+});
+
+/* ─────────────────────────────────
+   SCENE 2 — Video autoplay
+───────────────────────────────── */
+const vid = document.getElementById('scene2-video');
+
+ScrollTrigger.create({
+  trigger: '#scene2',
+  start: 'top top',
+  end:   'bottom top',
+  onEnter:     () => { vid.currentTime = 0; vid.play().catch(() => {}); },
+  onLeave:     () => vid.pause(),
+  onEnterBack: () => vid.play().catch(() => {}),
+  onLeaveBack: () => vid.pause(),
+});
+
+/* ─────────────────────────────────
+   SCENE 2 — Panel A in
+───────────────────────────────── */
+gsap.fromTo('#s2p1',
+  { opacity: 0, y: 48 },
+  {
+    opacity: 1, y: 0,
+    ease: 'power2.out',
+    scrollTrigger: {
+      trigger: '#scene2',
+      start: '8% top',
+      end:   '24% top',
+      scrub: 1,
+    }
+  }
+);
+
+/* ─────────────────────────────────
+   SCENE 2 — Panel A out
+───────────────────────────────── */
+gsap.to('#s2p1', {
+  opacity: 0, y: -46,
+  ease: 'power2.in',
+  scrollTrigger: {
+    trigger: '#scene2',
+    start: '34% top',
+    end:   '48% top',
+    scrub: 1,
+  }
+});
+
+/* ─────────────────────────────────
+   SCENE 2 — Panel B in
+───────────────────────────────── */
+gsap.fromTo('#s2p2',
+  { opacity: 0, y: 48 },
+  {
+    opacity: 1, y: 0,
+    ease: 'power2.out',
+    scrollTrigger: {
+      trigger: '#scene2',
+      start: '52% top',
+      end:   '66% top',
+      scrub: 1,
+    }
+  }
+);
+
+/* ─────────────────────────────────
+   SCENE 2 — Panel B out
+───────────────────────────────── */
+gsap.to('#s2p2', {
+  opacity: 0, y: -46,
+  ease: 'power2.in',
+  scrollTrigger: {
+    trigger: '#scene2',
+    start: '78% top',
+    end:   '92% top',
+    scrub: 1,
+  }
+});
+</script>
+</body>
+</html>
