@@ -1,159 +1,349 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>GSAP Scroll Story</title>
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GSAP Scroll Experience</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
 <style>
-html, body {
-  margin: 0;
-  padding: 0;
-  overflow-x: hidden;
-  font-family: sans-serif;
-}
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=Jost:wght@200;300;400&display=swap');
 
-.site-header {
-  position: fixed;
-  top: 0;
-  width: 100%;
-  height: 70px;
-  background: white;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: bold;
-}
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
-.scroll-wrapper {
-  position: relative;
-  height: 100vh;
-}
+  :root {
+    --cream: #f7f3ec;
+    --dark:  #141210;
+    --gold:  #b8965a;
+    --muted: #7a6e62;
+  }
 
-.panel {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-}
+  html, body {
+    background: var(--dark);
+    overflow-x: hidden;
+  }
 
-.panel img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-track { background: var(--dark); }
+  ::-webkit-scrollbar-thumb { background: var(--gold); }
 
-.texts {
-  position: absolute;
-  top: 50%;
-  left: 10%;
-  transform: translateY(-50%);
-  z-index: 5;
-}
+  /* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+     HEADER
+  \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
+  #site-header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 200;
+    padding: 1.8rem 5vw;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
 
-.texts h2 {
-  position: absolute;
-  opacity: 0;
-  margin: 0;
-  color: white;
-  font-size: 40px;
-}
+  .logo {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.4rem;
+    font-weight: 900;
+    letter-spacing: 0.25em;
+    color: var(--cream);
+  }
 
-/* Initial states */
-.panel-2,
-.panel-3 {
-  opacity: 0;
-}
+  nav { display: flex; gap: 2.5rem; }
 
-.panel-2 .img3,
-.panel-3 .img5 {
-  opacity: 0;
-}
+  nav a {
+    font-family: 'Jost', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 300;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    color: rgba(247,243,236,0.6);
+    text-decoration: none;
+    transition: color 0.3s;
+  }
+  nav a:hover { color: var(--gold); }
+
+  /* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+     SECTION 1 \u2014 BANNER IMAGE
+  \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
+  #scene1 {
+    height: 500vh;
+    position: relative;
+  }
+
+  .s1-sticky {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .s1-banner {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    will-change: transform, opacity;
+  }
+
+  /* left-side dark gradient for text legibility */
+  .s1-gradient {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      105deg,
+      rgba(20,18,16,0.75) 0%,
+      rgba(20,18,16,0.30) 55%,
+      transparent 100%
+    );
+    z-index: 1;
+  }
+
+  /* text panels */
+  .s1-texts {
+    position: absolute;
+    left: 5vw;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    width: min(520px, 82vw);
+  }
+
+  .s1-panel {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    opacity: 0;
+    transform: translateY(52px);
+    pointer-events: none;
+  }
+
+  .s1-panel .tag {
+    display: inline-block;
+    font-family: 'Jost', sans-serif;
+    font-size: 0.62rem;
+    font-weight: 400;
+    letter-spacing: 0.48em;
+    text-transform: uppercase;
+    color: var(--gold);
+    border: 1px solid rgba(184,150,90,0.5);
+    padding: 0.28em 0.9em;
+    margin-bottom: 1.4rem;
+  }
+
+  .s1-panel h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(2.8rem, 5.5vw, 5rem);
+    font-weight: 700;
+    line-height: 1.07;
+    color: var(--cream);
+    margin-bottom: 1.3rem;
+    letter-spacing: -0.01em;
+  }
+
+  .s1-panel h2 em {
+    font-style: italic;
+    color: var(--gold);
+  }
+
+  .s1-panel p {
+    font-family: 'Jost', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 200;
+    line-height: 1.9;
+    color: rgba(247,243,236,0.62);
+    letter-spacing: 0.02em;
+  }
+
+  /* decorative side rule */
+  .s1-texts::before {
+    content: '';
+    position: absolute;
+    left: -1.8rem;
+    top: 8%;
+    height: 84%;
+    width: 1px;
+    background: linear-gradient(to bottom, transparent, var(--gold) 40%, transparent);
+    opacity: 0.45;
+  }
+
+  /* scroll hint */
+  .scroll-hint {
+    position: absolute;
+    bottom: 2.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    opacity: 0.45;
+  }
+
+  .scroll-hint span {
+    font-family: 'Jost', sans-serif;
+    font-size: 0.6rem;
+    letter-spacing: 0.45em;
+    text-transform: uppercase;
+    color: var(--cream);
+  }
+
+  .scroll-line {
+    width: 1px;
+    height: 48px;
+    background: linear-gradient(to bottom, var(--cream), transparent);
+    animation: dropLine 1.8s ease-in-out infinite;
+  }
+
+  @keyframes dropLine {
+    0%   { transform: scaleY(0); transform-origin: top; opacity: 1; }
+    55%  { transform: scaleY(1); transform-origin: top; opacity: 1; }
+    100% { transform: scaleY(1); transform-origin: bottom; opacity: 0; }
+  }
+
+  /* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+     SECTION 2 \u2014 VIDEO
+  \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
+  #scene2 {
+    height: 480vh;
+    position: relative;
+    background: var(--dark);
+  }
+
+  .s2-sticky {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .s2-video-wrap {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+  }
+
+  #scene2-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    display: block;
+  }
+
+  .s2-gradient {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      to bottom,
+      rgba(20,18,16,0.12) 0%,
+      rgba(20,18,16,0.55) 100%
+    );
+    z-index: 1;
+  }
+
+  /* centred text panels over video */
+  .s2-texts {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .s2-panel {
+    position: absolute;
+    width: min(660px, 88vw);
+    text-align: center;
+    opacity: 0;
+    transform: translateY(44px);
+    pointer-events: none;
+  }
+
+  .s2-panel .tag {
+    display: inline-block;
+    font-family: 'Jost', sans-serif;
+    font-size: 0.62rem;
+    letter-spacing: 0.5em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 1.2rem;
+  }
+
+  .s2-panel h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(2.6rem, 5.5vw, 5rem);
+    font-weight: 900;
+    color: var(--cream);
+    line-height: 1.06;
+    margin-bottom: 1.2rem;
+    letter-spacing: -0.01em;
+  }
+
+  .s2-panel h2 em {
+    font-style: italic;
+    color: var(--gold);
+  }
+
+  .s2-panel p {
+    font-family: 'Jost', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 200;
+    color: rgba(247,243,236,0.6);
+    line-height: 1.85;
+    letter-spacing: 0.02em;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  /* end spacer */
+  .end-block {
+    height: 100vh;
+    background: var(--dark);
+  }
 </style>
 </head>
 <body>
 
-<header class="site-header">HEADER</header>
+<!-- \u2550\u2550\u2550 HEADER \u2550\u2550\u2550 -->
+<header id="site-header">
+  <div class="logo">LUMI\u00c8RE</div>
+  <nav>
+    <a href="#">Work</a>
+    <a href="#">About</a>
+    <a href="#">Contact</a>
+  </nav>
+</header>
 
-<div class="scroll-wrapper">
+<!-- \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+     SECTION 1 \u2014 Full-width banner + 2 text panels
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 -->
+<section id="scene1">
+  <div class="s1-sticky" id="s1-sticky">
 
-  <!-- Panel 1 -->
-  <section class="panel panel-1">
-    <img src="https://picsum.photos/id/1018/1920/1080" />
-    <div class="texts">
-      <h2>First Message</h2>
-      <h2>Second Message</h2>
-      <h2>Third Message</h2>
-    </div>
-  </section>
+    <img
+      class="s1-banner"
+      id="s1-banner"
+      src="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=90"
+      alt="Mountain landscape banner"
+    >
+    <div class="s1-gradient"></div>
 
-  <!-- Panel 2 -->
-  <section class="panel panel-2">
-    <img src="https://picsum.photos/id/1015/1920/1080" class="img2"/>
-    <img src="https://picsum.photos/id/1016/1920/1080" class="img3"/>
-  </section>
+    <div class="s1-texts">
 
-  <!-- Panel 3 -->
-  <section class="panel panel-3">
-    <img src="https://picsum.photos/id/1020/1920/1080" class="img4"/>
-    <img src="https://picsum.photos/id/1024/1920/1080" class="img5"/>
-  </section>
+      <div class="s1-panel" id="s1p1">
+        <span class="tag">Chapter One</span>
+        <h2>Where <em>Light</em><br>First Breaks</h2>
+        <p>Before the world stirs, a moment hangs suspended \u2014<br>
+           poised between deep darkness and the very first amber.</p>
+      </div>
 
-</div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
-
-<script>
-gsap.registerPlugin(ScrollTrigger);
-
-const master = gsap.timeline({
-  scrollTrigger: {
-    trigger: ".scroll-wrapper",
-    start: "top top",
-    end: "+=800%",
-    scrub: true,
-    pin: true
-  }
-});
-
-// Hide header
-gsap.to(".site-header", {
-  yPercent: -100,
-  scrollTrigger: {
-    trigger: ".scroll-wrapper",
-    start: "top top",
-    end: "bottom top",
-    scrub: true
-  }
-});
-
-// Panel 1 text cycle
-gsap.utils.toArray(".panel-1 h2").forEach(text => {
-  master
-    .to(text, { opacity: 1, duration: 1 })
-    .to(text, { opacity: 0, duration: 1 });
-});
-
-// Switch to Panel 2
-master
-  .to(".panel-1", { opacity: 0, duration: 1 })
-  .to(".panel-2", { opacity: 1, duration: 1 })
-
-  .from(".img2", { yPercent: 100, duration: 2 })
-  .to(".img2", { opacity: 0, duration: 2 })
-  .to(".img3", { opacity: 1, duration: 2 })
-
-// Switch to Panel 3
-  .to(".panel-2", { opacity: 0, duration: 1 })
-  .to(".panel-3", { opacity: 1, duration: 1 })
-
-  .from(".img5", { yPercent: 100, duration: 2 })
-  .to(".panel-3", { backgroundColor: "#000", duration: 2 });
-
-</script>
-
-</body>
-</html>
+      <div class="s1-panel" id="s1p2">
+        <span class="tag">Chapter Two</span>
+        <h2>Into the<br><em>Infinite</em> Blue</h2>
+        <p>Mountains draw breath. Rivers
