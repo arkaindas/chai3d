@@ -7,7 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=Jost:wght@200;300;400&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,400&family=Jost:wght@200;300;400&display=swap');
 
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -15,10 +15,11 @@
     --cream: #f7f3ec;
     --dark:  #141210;
     --gold:  #b8965a;
-    --muted: #7a6e62;
   }
 
-  html, body {
+  html { font-size: 16px; }
+
+  body {
     background: var(--dark);
     overflow-x: hidden;
   }
@@ -27,14 +28,14 @@
   ::-webkit-scrollbar-track { background: var(--dark); }
   ::-webkit-scrollbar-thumb { background: var(--gold); }
 
-  /* ════════════════════════════════════
+  /* ══════════════════════════════════
      HEADER
-  ════════════════════════════════════ */
+  ══════════════════════════════════ */
   #site-header {
     position: fixed;
     top: 0; left: 0; right: 0;
-    z-index: 200;
-    padding: 1.8rem 5vw;
+    z-index: 300;
+    padding: clamp(1rem, 2.5vw, 1.8rem) clamp(1.2rem, 5vw, 4rem);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -42,17 +43,17 @@
 
   .logo {
     font-family: 'Playfair Display', serif;
-    font-size: 1.4rem;
+    font-size: clamp(1rem, 2.5vw, 1.4rem);
     font-weight: 900;
     letter-spacing: 0.25em;
     color: var(--cream);
   }
 
-  nav { display: flex; gap: 2.5rem; }
+  nav { display: flex; gap: clamp(1rem, 2.5vw, 2.5rem); }
 
   nav a {
     font-family: 'Jost', sans-serif;
-    font-size: 0.7rem;
+    font-size: clamp(0.55rem, 1.2vw, 0.7rem);
     font-weight: 300;
     letter-spacing: 0.35em;
     text-transform: uppercase;
@@ -62,15 +63,18 @@
   }
   nav a:hover { color: var(--gold); }
 
-  /* ════════════════════════════════════
-     SECTION 1 — BANNER IMAGE
-  ════════════════════════════════════ */
-  #scene1 {
-    height: 500vh;
+  /* ══════════════════════════════════
+     WRAPPER — single scroll container
+  ══════════════════════════════════ */
+  #scroll-wrapper {
     position: relative;
+    height: 900vh;
   }
 
-  .s1-sticky {
+  /* ══════════════════════════════════
+     SCENE 1 — sticky image panel
+  ══════════════════════════════════ */
+  #scene1 {
     position: sticky;
     top: 0;
     height: 100vh;
@@ -85,16 +89,15 @@
     height: 100%;
     object-fit: cover;
     object-position: center;
-    will-change: transform, opacity;
   }
 
   .s1-gradient {
     position: absolute;
     inset: 0;
     background: linear-gradient(
-      105deg,
-      rgba(20,18,16,0.75) 0%,
-      rgba(20,18,16,0.30) 55%,
+      110deg,
+      rgba(20,18,16,0.80) 0%,
+      rgba(20,18,16,0.35) 55%,
       transparent 100%
     );
     z-index: 1;
@@ -102,11 +105,21 @@
 
   .s1-texts {
     position: absolute;
-    left: 5vw;
+    left: clamp(1.2rem, 5vw, 5rem);
     top: 50%;
     transform: translateY(-50%);
     z-index: 2;
-    width: min(520px, 82vw);
+    width: min(520px, 88vw);
+  }
+
+  .s1-texts::before {
+    content: '';
+    position: absolute;
+    left: -1.5rem;
+    top: 8%; height: 84%;
+    width: 1px;
+    background: linear-gradient(to bottom, transparent, var(--gold) 40%, transparent);
+    opacity: 0.4;
   }
 
   .s1-panel {
@@ -114,61 +127,46 @@
     top: 0; left: 0;
     width: 100%;
     opacity: 0;
-    transform: translateY(52px);
+    transform: translateY(50px);
     pointer-events: none;
   }
 
-  .s1-panel .tag {
+  .tag {
     display: inline-block;
     font-family: 'Jost', sans-serif;
-    font-size: 0.62rem;
+    font-size: clamp(0.55rem, 1.2vw, 0.65rem);
     font-weight: 400;
     letter-spacing: 0.48em;
     text-transform: uppercase;
     color: var(--gold);
-    border: 1px solid rgba(184,150,90,0.5);
-    padding: 0.28em 0.9em;
-    margin-bottom: 1.4rem;
+    border: 1px solid rgba(184,150,90,0.45);
+    padding: 0.3em 0.9em;
+    margin-bottom: clamp(0.8rem, 2vw, 1.4rem);
   }
 
   .s1-panel h2 {
     font-family: 'Playfair Display', serif;
-    font-size: clamp(2.8rem, 5.5vw, 5rem);
+    font-size: clamp(2rem, 5.5vw, 5rem);
     font-weight: 700;
     line-height: 1.07;
     color: var(--cream);
-    margin-bottom: 1.3rem;
-    letter-spacing: -0.01em;
+    margin-bottom: clamp(0.8rem, 1.5vw, 1.3rem);
   }
 
-  .s1-panel h2 em {
-    font-style: italic;
-    color: var(--gold);
-  }
+  .s1-panel h2 em { font-style: italic; color: var(--gold); }
 
   .s1-panel p {
     font-family: 'Jost', sans-serif;
-    font-size: 0.95rem;
+    font-size: clamp(0.8rem, 1.5vw, 0.95rem);
     font-weight: 200;
     line-height: 1.9;
     color: rgba(247,243,236,0.62);
-    letter-spacing: 0.02em;
   }
 
-  .s1-texts::before {
-    content: '';
-    position: absolute;
-    left: -1.8rem;
-    top: 8%;
-    height: 84%;
-    width: 1px;
-    background: linear-gradient(to bottom, transparent, var(--gold) 40%, transparent);
-    opacity: 0.45;
-  }
-
+  /* scroll hint */
   .scroll-hint {
     position: absolute;
-    bottom: 2.5rem;
+    bottom: clamp(1.5rem, 3vw, 2.5rem);
     left: 50%;
     transform: translateX(-50%);
     z-index: 10;
@@ -188,39 +186,31 @@
   }
 
   .scroll-line {
-    width: 1px;
-    height: 48px;
+    width: 1px; height: 48px;
     background: linear-gradient(to bottom, var(--cream), transparent);
     animation: dropLine 1.8s ease-in-out infinite;
   }
 
   @keyframes dropLine {
-    0%   { transform: scaleY(0); transform-origin: top; opacity: 1; }
-    55%  { transform: scaleY(1); transform-origin: top; opacity: 1; }
+    0%   { transform: scaleY(0); transform-origin: top;    opacity: 1; }
+    55%  { transform: scaleY(1); transform-origin: top;    opacity: 1; }
     100% { transform: scaleY(1); transform-origin: bottom; opacity: 0; }
   }
 
-  /* ════════════════════════════════════
-     SECTION 2 — VIDEO
-  ════════════════════════════════════ */
+  /* ══════════════════════════════════
+     SCENE 2 — video panel
+  ══════════════════════════════════ */
   #scene2 {
-    height: 480vh;
-    position: relative;
-    background: var(--dark);
-  }
-
-  .s2-sticky {
-    position: sticky;
-    top: 0;
+    position: absolute;
+    top: 400vh;
+    left: 0; right: 0;
     height: 100vh;
-    width: 100%;
     overflow: hidden;
   }
 
   .s2-video-wrap {
     position: absolute;
     inset: 0;
-    z-index: 0;
   }
 
   #scene2-video {
@@ -236,8 +226,8 @@
     inset: 0;
     background: linear-gradient(
       to bottom,
-      rgba(20,18,16,0.12) 0%,
-      rgba(20,18,16,0.55) 100%
+      rgba(20,18,16,0.15) 0%,
+      rgba(20,18,16,0.6)  100%
     );
     z-index: 1;
   }
@@ -253,58 +243,46 @@
 
   .s2-panel {
     position: absolute;
-    width: min(660px, 88vw);
+    width: min(660px, 90vw);
     text-align: center;
     opacity: 0;
     transform: translateY(44px);
     pointer-events: none;
   }
 
-  .s2-panel .tag {
-    display: inline-block;
-    font-family: 'Jost', sans-serif;
-    font-size: 0.62rem;
-    letter-spacing: 0.5em;
-    text-transform: uppercase;
-    color: var(--gold);
-    margin-bottom: 1.2rem;
-  }
-
   .s2-panel h2 {
     font-family: 'Playfair Display', serif;
-    font-size: clamp(2.6rem, 5.5vw, 5rem);
+    font-size: clamp(2rem, 5.5vw, 5rem);
     font-weight: 900;
     color: var(--cream);
     line-height: 1.06;
-    margin-bottom: 1.2rem;
-    letter-spacing: -0.01em;
+    margin-bottom: clamp(0.8rem, 1.5vw, 1.2rem);
   }
 
-  .s2-panel h2 em {
-    font-style: italic;
-    color: var(--gold);
-  }
+  .s2-panel h2 em { font-style: italic; color: var(--gold); }
 
   .s2-panel p {
     font-family: 'Jost', sans-serif;
-    font-size: 0.95rem;
+    font-size: clamp(0.8rem, 1.5vw, 0.95rem);
     font-weight: 200;
     color: rgba(247,243,236,0.6);
     line-height: 1.85;
-    letter-spacing: 0.02em;
     max-width: 480px;
     margin: 0 auto;
   }
 
-  .end-block {
-    height: 100vh;
-    background: var(--dark);
+  /* ══════════════════════════════════
+     MOBILE
+  ══════════════════════════════════ */
+  @media (max-width: 600px) {
+    .s1-texts::before { display: none; }
+    nav a:not(:first-child) { display: none; }
   }
 </style>
 </head>
 <body>
 
-<!-- ═══ HEADER ═══ -->
+<!-- HEADER -->
 <header id="site-header">
   <div class="logo">LUMIÈRE</div>
   <nav>
@@ -314,22 +292,19 @@
   </nav>
 </header>
 
-<!-- ══════════════════════════════════════════════════
-     SECTION 1 — Full-width banner + 2 text panels
-══════════════════════════════════════════════════ -->
-<section id="scene1">
-  <div class="s1-sticky" id="s1-sticky">
+<!-- SINGLE SCROLL WRAPPER -->
+<div id="scroll-wrapper">
 
+  <!-- SCENE 1 -->
+  <div id="scene1">
     <img
-      class="s1-banner"
-      id="s1-banner"
+      class="s1-banner" id="s1-banner"
       src="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=90"
-      alt="Mountain landscape banner"
+      alt="Mountain landscape"
     >
     <div class="s1-gradient"></div>
 
     <div class="s1-texts">
-
       <div class="s1-panel" id="s1p1">
         <span class="tag">Chapter One</span>
         <h2>Where <em>Light</em><br>First Breaks</h2>
@@ -343,42 +318,30 @@
         <p>Mountains draw breath. Rivers pause mid-flow.<br>
            Then one ray cracks the ridge — and everything exhales.</p>
       </div>
-
     </div>
 
     <div class="scroll-hint" id="scroll-hint">
       <span>Scroll</span>
       <div class="scroll-line"></div>
     </div>
-
   </div>
-</section>
 
-<!-- ══════════════════════════════════════════════════
-     SECTION 2 — Full-width video + 2 text panels
-══════════════════════════════════════════════════ -->
-<section id="scene2">
-  <div class="s2-sticky">
-
+  <!-- SCENE 2 -->
+  <div id="scene2">
     <div class="s2-video-wrap">
       <!--
-        Replace src with your own .mp4 file:
-          src="./your-landscape-video.mp4"
+        Replace src with your own video file:
+        src="./your-landscape-video.mp4"
       -->
       <video
         id="scene2-video"
         src="https://www.w3schools.com/html/mov_bbb.mp4"
-        muted
-        playsinline
-        preload="auto"
-        loop
+        muted playsinline preload="auto" loop
       ></video>
     </div>
-
     <div class="s2-gradient"></div>
 
     <div class="s2-texts">
-
       <div class="s2-panel" id="s2p1">
         <span class="tag">Motion</span>
         <h2>Movement in<br><em>Stillness</em></h2>
@@ -392,188 +355,213 @@
         <p>Every frame that rolls is a moment that will never exist again —
            captured here, held briefly, then released back into time.</p>
       </div>
-
     </div>
   </div>
-</section>
 
-<div class="end-block"></div>
+</div><!-- /scroll-wrapper -->
 
-<!-- ═══════════════════ GSAP ═══════════════════ -->
 <script>
 gsap.registerPlugin(ScrollTrigger);
 
-/* ── initial states ── */
+/* ─────────────────────────────────────────
+   HELPERS
+───────────────────────────────────────── */
+const vh = () => window.innerHeight;
+
+/* ─────────────────────────────────────────
+   INITIAL STATE
+───────────────────────────────────────── */
 gsap.set('#s1p1', { opacity: 1, y: 0 });
 
-/* ─────────────────────────────────
-   HEADER — hide on scroll start
-───────────────────────────────── */
+/* ─────────────────────────────────────────
+   HEADER — hide on scroll
+───────────────────────────────────────── */
 gsap.to('#site-header', {
   yPercent: -115,
   ease: 'power2.inOut',
   scrollTrigger: {
-    trigger: '#scene1',
-    start: 'top+=90 top',
-    end:   'top+=270 top',
-    scrub: 0.9,
+    trigger: '#scroll-wrapper',
+    start: '1% top',
+    end:   '4% top',
+    scrub: 0.8,
   }
 });
 
 gsap.to('#scroll-hint', {
   autoAlpha: 0,
   scrollTrigger: {
-    trigger: '#scene1',
-    start: 'top+=50 top',
-    end:   'top+=150 top',
+    trigger: '#scroll-wrapper',
+    start: '1% top',
+    end:   '3% top',
     scrub: true,
   }
 });
 
-/* ─────────────────────────────────
+/* ─────────────────────────────────────────
    SCENE 1 — Panel 1 out
-───────────────────────────────── */
+───────────────────────────────────────── */
 gsap.to('#s1p1', {
   opacity: 0, y: -46,
-  ease: 'power2.in',
   scrollTrigger: {
-    trigger: '#scene1',
-    start: '18% top',
-    end:   '32% top',
+    trigger: '#scroll-wrapper',
+    start: '10% top',
+    end:   '20% top',
     scrub: 1,
   }
 });
 
-/* ─────────────────────────────────
+/* ─────────────────────────────────────────
    SCENE 1 — Panel 2 in
-───────────────────────────────── */
+───────────────────────────────────────── */
 gsap.fromTo('#s1p2',
   { opacity: 0, y: 52 },
   {
     opacity: 1, y: 0,
-    ease: 'power2.out',
     scrollTrigger: {
-      trigger: '#scene1',
-      start: '30% top',
-      end:   '46% top',
+      trigger: '#scroll-wrapper',
+      start: '18% top',
+      end:   '28% top',
       scrub: 1,
     }
   }
 );
 
-/* ─────────────────────────────────
+/* ─────────────────────────────────────────
    SCENE 1 — Panel 2 out
-───────────────────────────────── */
+───────────────────────────────────────── */
 gsap.to('#s1p2', {
   opacity: 0, y: -46,
-  ease: 'power2.in',
   scrollTrigger: {
-    trigger: '#scene1',
-    start: '60% top',
-    end:   '74% top',
+    trigger: '#scroll-wrapper',
+    start: '30% top',
+    end:   '38% top',
     scrub: 1,
   }
 });
 
-/* ─────────────────────────────────
+/* ─────────────────────────────────────────
    SCENE 1 — Banner exits upward
-───────────────────────────────── */
+───────────────────────────────────────── */
 gsap.to('#s1-banner', {
-  yPercent: -20,
+  yPercent: -22,
   scale: 0.93,
-  ease: 'power2.inOut',
   scrollTrigger: {
-    trigger: '#scene1',
-    start: '76% top',
-    end:   'bottom top',
-    scrub: 1.4,
+    trigger: '#scroll-wrapper',
+    start: '36% top',
+    end:   '44% top',
+    scrub: 1.2,
   }
 });
 
-gsap.to('#s1-sticky', {
+gsap.to('#scene1', {
   autoAlpha: 0,
-  ease: 'power1.in',
   scrollTrigger: {
-    trigger: '#scene1',
-    start: '84% top',
-    end:   'bottom top',
+    trigger: '#scroll-wrapper',
+    start: '40% top',
+    end:   '44% top',
     scrub: 1,
   }
 });
 
-/* ─────────────────────────────────
-   SCENE 2 — Video autoplay
-───────────────────────────────── */
-const vid = document.getElementById('scene2-video');
+/* ─────────────────────────────────────────
+   SCENE 2 — manual sticky via scroll listener
+   Budget: scrollY  4*vh → 8*vh  (400vh–800vh)
+───────────────────────────────────────── */
+const s2el  = document.getElementById('scene2');
+const video = document.getElementById('scene2-video');
 
-ScrollTrigger.create({
-  trigger: '#scene2',
-  start: 'top top',
-  end:   'bottom top',
-  onEnter:     () => { vid.currentTime = 0; vid.play().catch(() => {}); },
-  onLeave:     () => vid.pause(),
-  onEnterBack: () => vid.play().catch(() => {}),
-  onLeaveBack: () => vid.pause(),
+function updateScene2() {
+  const scrollY = window.scrollY;
+  const start   = 4 * vh();   // 400vh in px
+  const end     = 8 * vh();   // 800vh in px
+
+  if (scrollY < start) {
+    // Before scene2 — sit in normal document flow
+    s2el.style.position = 'absolute';
+    s2el.style.top      = '400vh';
+    s2el.style.bottom   = '';
+    video.pause();
+
+  } else if (scrollY >= start && scrollY < end) {
+    // Scene2 active — pin it to viewport
+    s2el.style.position = 'fixed';
+    s2el.style.top      = '0';
+    s2el.style.bottom   = '';
+    if (video.paused) {
+      video.currentTime = 0;
+      video.play().catch(() => {});
+    }
+
+  } else {
+    // Past scene2 — anchor to bottom of wrapper
+    s2el.style.position = 'absolute';
+    s2el.style.top      = '';
+    s2el.style.bottom   = '100vh';
+    video.pause();
+  }
+}
+
+window.addEventListener('scroll', updateScene2, { passive: true });
+window.addEventListener('resize', () => {
+  ScrollTrigger.refresh();
+  updateScene2();
 });
+updateScene2();
 
-/* ─────────────────────────────────
+/* ─────────────────────────────────────────
    SCENE 2 — Panel A in
-───────────────────────────────── */
+───────────────────────────────────────── */
 gsap.fromTo('#s2p1',
   { opacity: 0, y: 48 },
   {
     opacity: 1, y: 0,
-    ease: 'power2.out',
     scrollTrigger: {
-      trigger: '#scene2',
-      start: '8% top',
-      end:   '24% top',
+      trigger: '#scroll-wrapper',
+      start: '48% top',
+      end:   '58% top',
       scrub: 1,
     }
   }
 );
 
-/* ─────────────────────────────────
+/* ─────────────────────────────────────────
    SCENE 2 — Panel A out
-───────────────────────────────── */
+───────────────────────────────────────── */
 gsap.to('#s2p1', {
   opacity: 0, y: -46,
-  ease: 'power2.in',
   scrollTrigger: {
-    trigger: '#scene2',
-    start: '34% top',
-    end:   '48% top',
+    trigger: '#scroll-wrapper',
+    start: '60% top',
+    end:   '68% top',
     scrub: 1,
   }
 });
 
-/* ─────────────────────────────────
+/* ─────────────────────────────────────────
    SCENE 2 — Panel B in
-───────────────────────────────── */
+───────────────────────────────────────── */
 gsap.fromTo('#s2p2',
   { opacity: 0, y: 48 },
   {
     opacity: 1, y: 0,
-    ease: 'power2.out',
     scrollTrigger: {
-      trigger: '#scene2',
-      start: '52% top',
-      end:   '66% top',
+      trigger: '#scroll-wrapper',
+      start: '70% top',
+      end:   '78% top',
       scrub: 1,
     }
   }
 );
 
-/* ─────────────────────────────────
+/* ─────────────────────────────────────────
    SCENE 2 — Panel B out
-───────────────────────────────── */
+───────────────────────────────────────── */
 gsap.to('#s2p2', {
   opacity: 0, y: -46,
-  ease: 'power2.in',
   scrollTrigger: {
-    trigger: '#scene2',
-    start: '78% top',
-    end:   '92% top',
+    trigger: '#scroll-wrapper',
+    start: '80% top',
+    end:   '87% top',
     scrub: 1,
   }
 });
