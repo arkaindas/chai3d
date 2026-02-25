@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GSAP Scroll Experience</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,400&family=Jost:wght@200;300;400&display=swap');
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --cream: #f7f3ec;
+    --dark:  #141210;
+    --gold:  #b8965a;
+  }
+
+  html { font-size: 16px; }
+
+  body {
+    background: var(--dark);
+    overflow-x: hidden;
+  }
+
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-track { background: var(--dark); }
+  ::-webkit-scrollbar-thumb { background: var(--gold); }
+
+  /* ══════════════════════════════════
+     HEADER
+  ══════════════════════════════════ */
+  #site-header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 300;
+    padding: clamp(1rem, 2.5vw, 1.8rem) clamp(1.2rem, 5vw, 4rem);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .logo {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(1rem, 2.5vw, 1.4rem);
+    font-weight: 900;
+    letter-spacing: 0.25em;
+    color: var(--cream);
+  }
+
+  nav { display: flex; gap: clamp(1rem, 2.5vw, 2.5rem); }
+
+  nav a {
+    font-family: 'Jost', sans-serif;
+    font-size: clamp(0.55rem, 1.2vw, 0.7rem);
+    font-weight: 300;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    color: rgba(247,243,236,0.6);
+    text-decoration: none;
+    transition: color 0.3s;
+  }
+  nav a:hover { color: var(--gold); }
+
+  /* ══════════════════════════════════════════
+     THE ONLY ELEMENT THAT HAS HEIGHT.
+     Everything else is position:fixed or
+     position:absolute inside this.
+     Total = S1(400vh) + S2(400vh) + S3(400vh)
+           = 1200vh. No gaps possible.
+  ══════════════════════════════════════════ */
+  #page {
+    position: relative;
+    height: 1200vh;
+    background: var(--dark);
+  }
+
+  /* ══════════════════════════════════
+     SHARED SCENE SHELL
+     All three scenes use this base.
+     JS switches between:
+       position:absolute (parked)
+       position:fixed    (active / visible)
+  ══════════════════════════════════ */
+  .scene {
+    position: fixed; /* default — overridden by JS when not active */
+    top: 0; left: 0;
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+    /* stack order: s1 on top initially, then s2, then s3 */
+  }
+
+  #scene1 { z-index: 3; }
+  #scene2 { z-index: 2; }
+  #scene3 { z-index: 1; }
+
+  /* ══════════════════════════════════
+     SCENE 1 — banner image
+  ══════════════════════════════════ */
+  .s1-banner {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    object-position: center;
+  }
+
+  .s1-gradient {
+    position: absolute; inset: 0;
+    background: linear-gradient(
+      110deg,
+      rgba(20,18,16,0.80) 0%,
+      rgba(20,18,16,0.35) 55%,
+      transparent 100%
+    );
+    z-index: 1;
+  }
+
+  .s1-texts {
+    position: absolute;
+    left: clamp(1.2rem, 5vw, 5rem);
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    width: min(520px, 88vw);
+  }
+
+  .s1-texts::before {
+    content: '';
+    position: absolute;
+    left: -1.5rem; top: 8%; height: 84%;
+    width: 1px;
+    background: linear-gradient(to bottom, transparent, var(--gold) 40%, transparent);
+    opacity: 0.4;
+  }
+
+  .s1-panel {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    opacity: 0;
+    transform: translateY(50px);
+    pointer-events: none;
+  }
+
+  .tag {
+    display: inline-block;
+    font-family: 'Jost', sans-serif;
+    font-size: clamp(0.55rem, 1.2vw, 0.65rem);
+    font-weight: 400;
+    letter-spacing: 0.48em;
+    text-transform: uppercase;
+    color: var(--gold);
+    border: 1px solid rgba(184,150,90,0.45);
+    padding: 0.3em 0.9em;
+    margin-bottom: clamp(0.8rem, 2vw, 1.4rem);
+  }
+
+  .s1-panel h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(2rem, 5.5vw, 5rem);
+    font-weight: 700;
+    line-height: 1.07;
+    color: var(--cream);
+    margin-bottom: clamp(0.8rem, 1.5vw, 1.3rem);
+  }
+
+  .s1-panel h2 em { font-style: italic; color: var(--gold); }
+
+  .s1-panel p {
+    font-family: 'Jost', sans-serif;
+    font-size: clamp(0.8rem, 1.5vw, 0.95rem);
+    font-weight: 200;
+    line-height: 1.9;
+    color: rgba(247,243,236,0.62);
+  }
+
+  .scroll-hint {
+    position: absolute;
+    bottom: clamp(1.5rem, 3vw, 2.5rem);
+    left: 50%; transform: translateX(-50%);
+    z-index: 10;
+    display: flex; flex-direction: column;
+    align-items: center; gap: 0.5rem;
+    opacity: 0.45;
+  }
+
+  .scroll-hint span {
+    font-family: 'Jost', sans-serif;
+    font-size: 0.6rem;
+    letter-spacing: 0.45em;
+    text-transform: uppercase;
+    color: var(--cream);
+  }
+
+  .scroll-line {
+    width: 1px; height: 48px;
+    background: linear-gradient(to bottom, var(--cream), transparent);
+    animation: dropLine 1.8s ease-in-out infinite;
+  }
+
+  @keyframes dropLine {
+    0%   { transform: scaleY(0); transform-origin: top;    opacity: 1; }
+    55%  { transform: scaleY(1); transform-origin: top;    opacity: 1; }
+    100% { transform: scaleY(1); transform-origin: bottom; opacity: 0; }
+  }
+
+  /* ══════════════════════════════════
+     SCENE 2 — video + scrub
+  ══════════════════════════════════ */
+  .s2-video-wrap {
+    position: absolute; inset: 0;
+  }
+
+  #scene2-video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    object-position: center;
+    display: block;
+  }
+
+  .s2-gradient {
+    position: absolute; inset: 0;
+    background: linear-gradient(
+      to bottom,
+      rgba(20,18,16,0.15) 0%,
+      rgba(20,18,16,0.6) 100%
+    );
+    z-index: 1;
+  }
+
+  .s2-progress-bar {
+    position: absolute;
+    bottom: 0; left: 0;
+    height: 2px; width: 0%;
+    background: var(--gold);
+    z-index: 10;
+  }
+
+  .s2-texts {
+    position: absolute; inset: 0;
+    z-index: 2;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .s2-panel {
+    position: absolute;
+    width: min(660px, 90vw);
+    text-align: center;
+    opacity: 0;
+    transform: translateY(44px);
+    pointer-events: none;
+  }
+
+  .s2-panel h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(2rem, 5.5vw, 5rem);
+    font-weight: 900;
+    color: var(--cream);
+    line-height: 1.06;
+    margin-bottom: clamp(0.8rem, 1.5vw, 1.2rem);
+  }
+
+  .s2-panel h2 em { font-style: italic; color: var(--gold); }
+
+  .s2-panel p {
+    font-family: 'Jost', sans-serif;
+    font-size: clamp(0.8rem, 1.5vw, 0.95rem);
+    font-weight: 200;
+    color: rgba(247,243,236,0.6);
+    line-height: 1.85;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  /* ══════════════════════════════════
+     SCENE 3 — light/dark image
+
+     The image inside uses aspect-ratio
+     padding trick so the switch % coords
+     are always on the same visual spot.
+  ══════════════════════════════════ */
+  .s3-inner {
+    /*
+      This inner div matches the image's
+      natural aspect ratio so % positions
+      of the switch are always accurate.
+      Change 56.25% for a different ratio:
+        56.25% = 16:9
+        66.67% = 3:2
+        75%    = 4:3
+    */
+    position: absolute;
+    top: 50%; left: 0;
+    width: 100%;
+    transform: translateY(-50%);
+    /* padding-bottom creates the ratio height */
+    padding-bottom: 56.25%;
+  }
+
+  .s3-img {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    object-position: center;
+    display: block;
+  }
+
+  .s3-dark-veil {
+    position: absolute; inset: 0;
+    background: linear-gradient(
+      135deg,
+      rgba(6,5,8,0.80) 0%,
+      rgba(15,22,50,0.72) 100%
+    );
+    opacity: 0;
+    transition: opacity 1.1s ease;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .s3-dark-veil.is-dark { opacity: 1; }
+
+  /*
+    Switch sits inside .s3-inner so its
+    left/top % are relative to the image box,
+    not the full 100vh scene.
+  */
+  .s3-switch-wrap {
+    position: absolute;
+    left: var(--switch-left, 72%);
+    top:  var(--switch-top,  38%);
+    transform: translate(-50%, -50%);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: clamp(0.4rem, 1.2vw, 0.8rem);
+    background: rgba(20,18,16,0.48);
+    border: 1px solid rgba(247,243,236,0.18);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: 999px;
+    padding: clamp(0.35rem, 0.8vw, 0.6rem) clamp(0.6rem, 1.5vw, 1rem);
+    white-space: nowrap;
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .s3-switch-label {
+    font-family: 'Jost', sans-serif;
+    font-size: clamp(0.5rem, 1vw, 0.68rem);
+    font-weight: 300;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    color: rgba(247,243,236,0.45);
+    transition: color 0.4s ease;
+    user-select: none;
+  }
+
+  .s3-switch-label.is-active { color: var(--gold); }
+
+  .s3-switch {
+    background: none; border: none;
+    padding: 0; cursor: pointer;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .s3-switch:focus-visible .s3-switch__track {
+    box-shadow: 0 0 0 3px rgba(184,150,90,0.55);
+  }
+
+  .s3-switch__track {
+    display: block;
+    position: relative;
+    width: clamp(34px, 4.5vw, 50px);
+    height: clamp(19px, 2.6vw, 27px);
+    border-radius: 999px;
+    background: rgba(247,243,236,0.18);
+    border: 1px solid rgba(247,243,236,0.22);
+    transition: background 0.4s ease, border-color 0.4s ease;
+    cursor: pointer;
+  }
+
+  .s3-switch__thumb {
+    position: absolute;
+    top: 50%; left: 3px;
+    transform: translateY(-50%);
+    width: clamp(13px,1.9vw,19px);
+    height: clamp(13px,1.9vw,19px);
+    border-radius: 50%;
+    background: var(--cream);
+    box-shadow: 0 1px 5px rgba(0,0,0,0.45);
+    transition:
+      left      0.4s cubic-bezier(0.4,0,0.2,1),
+      background 0.4s ease,
+      width     0.15s ease;
+  }
+
+  .s3-switch.is-dark .s3-switch__track {
+    background: rgba(80,110,180,0.38);
+    border-color: rgba(100,140,210,0.5);
+  }
+
+  .s3-switch.is-dark .s3-switch__thumb {
+    left: calc(100% - clamp(13px,1.9vw,19px) - 3px);
+    background: #8aabdf;
+  }
+
+  .s3-switch:active .s3-switch__thumb {
+    width: clamp(17px,2.4vw,24px);
+  }
+
+  /* ══════════════════════════════════
+     MOBILE
+  ══════════════════════════════════ */
+  @media (max-width: 600px) {
+    .s1-texts::before { display: none; }
+    nav a:not(:first-child) { display: none; }
+
+    /* On mobile the .s3-inner padding trick
+       still keeps % coords correct */
+    .s3-switch-wrap {
+      left: clamp(15%, var(--switch-left,72%), 85%);
+      top:  clamp(10%, var(--switch-top, 38%), 90%);
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header id="site-header">
+  <div class="logo">LUMIÈRE</div>
+  <nav>
+    <a href="#">Work</a>
+    <a href="#">About</a>
+    <a href="#">Contact</a>
+  </nav>
+</header>
+
+<!--
+  ════════════════════════════════════════════
+  #page  — 1200vh tall, the ONLY scrollable element
+  All scenes are position:fixed children.
+  JS parks/activates them by toggling to absolute.
+  Zero gaps guaranteed because nothing has height
+  except #page itself.
+  ════════════════════════════════════════════
+-->
+<div id="page">
+
+  <!-- ── SCENE 1 ── -->
+  <div class="scene" id="scene1">
+    <img
+      class="s1-banner" id="s1-banner"
+      src="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=90"
+      alt="Mountain landscape"
+    >
+    <div class="s1-gradient"></div>
+
+    <div class="s1-texts">
+      <div class="s1-panel" id="s1p1">
+        <span class="tag">Chapter One</span>
+        <h2>Where <em>Light</em><br>First Breaks</h2>
+        <p>Before the world stirs, a moment hangs suspended —<br>
+           poised between deep darkness and the very first amber.</p>
+      </div>
+      <div class="s1-panel" id="s1p2">
+        <span class="tag">Chapter Two</span>
+        <h2>Into the<br><em>Infinite</em> Blue</h2>
+        <p>Mountains draw breath. Rivers pause mid-flow.<br>
+           Then one ray cracks the ridge — and everything exhales.</p>
+      </div>
+    </div>
+
+    <div class="scroll-hint" id="scroll-hint">
+      <span>Scroll</span>
+      <div class="scroll-line"></div>
+    </div>
+  </div>
+
+  <!-- ── SCENE 2 ── -->
+  <div class="scene" id="scene2">
+    <div class="s2-video-wrap">
+      <!--
+        For smooth scroll-scrub use a LOCAL file:
+        src="./your-video.mp4"
+        A remote URL works but may stutter while buffering.
+      -->
+      <video
+        id="scene2-video"
+        src="https://www.w3schools.com/html/mov_bbb.mp4"
+        muted playsinline preload="auto"
+      ></video>
+    </div>
+    <div class="s2-gradient"></div>
+    <div class="s2-progress-bar" id="s2-progress-bar"></div>
+
+    <div class="s2-texts">
+      <div class="s2-panel" id="s2p1">
+        <span class="tag">Motion</span>
+        <h2>Movement in<br><em>Stillness</em></h2>
+        <p>Even when the land holds its shape, the light above it never stops —
+           dragging gold and shadow across every surface it touches.</p>
+      </div>
+      <div class="s2-panel" id="s2p2">
+        <span class="tag">Passage</span>
+        <h2>A World<br><em>Passing By</em></h2>
+        <p>Every frame that rolls is a moment that will never exist again —
+           captured here, held briefly, then released back into time.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SCENE 3 ── -->
+  <div class="scene" id="scene3">
+    <!--
+      .s3-inner uses the padding-bottom trick to
+      match the image's aspect ratio so switch
+      % coords are always on the same visual point.
+    -->
+    <div class="s3-inner" id="s3-inner">
+      <img
+        class="s3-img"
+        src="https://images.unsplash.com/photo-1501854140801-50d01698950b?w=1920&q=90"
+        alt="Landscape"
+      >
+      <div class="s3-dark-veil" id="s3-dark-veil"></div>
+
+      <!--
+        REPOSITION: change --switch-left and --switch-top only.
+        Both % are relative to the image box, not the screen.
+      -->
+      <div
+        class="s3-switch-wrap"
+        id="s3-switch-wrap"
+        style="--switch-left: 72%; --switch-top: 38%;"
+      >
+        <span class="s3-switch-label" id="s3-label-light">Light</span>
+        <button
+          class="s3-switch" id="s3-switch"
+          role="switch" aria-checked="false"
+          aria-label="Toggle light and dark"
+        >
+          <span class="s3-switch__track">
+            <span class="s3-switch__thumb"></span>
+          </span>
+        </button>
+        <span class="s3-switch-label" id="s3-label-dark">Dark</span>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<script>
+gsap.registerPlugin(ScrollTrigger);
+
+/* ─────────────────────────────────────────
+   SCROLL BUDGET  (#page = 1200vh)
+   ┌─────────────────────────────────────┐
+   │  S1:    0  –  400vh   (0%  – 33%)  │
+   │  S2:  400  –  800vh   (33% – 66%)  │
+   │  S3:  800  – 1200vh   (66% – 100%) │
+   └─────────────────────────────────────┘
+───────────────────────────────────────── */
+const VH        = () => window.innerHeight;
+const S1_END    = 400;   /* vh units */
+const S2_START  = 400;
+const S2_END    = 800;
+const S3_START  = 800;
+const S3_END    = 1200;
+
+/* elements */
+const scene1      = document.getElementById('scene1');
+const scene2      = document.getElementById('scene2');
+const scene3      = document.getElementById('scene3');
+const video       = document.getElementById('scene2-video');
+const progressBar = document.getElementById('s2-progress-bar');
+
+/* ─────────────────────────────────────────
+   SCENE MANAGER
+   Called on every scroll event.
+   Each scene is either:
+     position:fixed  → visible, covering screen
+     position:absolute + correct top → parked off-screen
+   No gaps because #page fills with its own height.
+───────────────────────────────────────── */
+let s3SwitchShown = false;
+
+function manageScenes() {
+  const sy      = window.scrollY;
+  const vhPx    = VH();
+  const s1EndPx = S1_END  * vhPx / 100 * 100; /* 400vh in px */
+  const s2StPx  = S2_START * vhPx / 100 * 100; /* 400vh in px */
+  const s2EndPx = S2_END  * vhPx / 100 * 100; /* 800vh in px */
+  const s3StPx  = S3_START * vhPx / 100 * 100; /* 800vh in px */
+  const s3EndPx = S3_END  * vhPx / 100 * 100; /* 1200vh in px */
+
+  /* ── SCENE 1 ──────────────────────────
+     Active:   sy < s1EndPx
+     Parked:   sy >= s1EndPx  (pushed above viewport)
+  ──────────────────────────────────────*/
+  if (sy < s1EndPx) {
+    scene1.style.position = 'fixed';
+    scene1.style.top      = '0';
+  } else {
+    scene1.style.position = 'absolute';
+    scene1.style.top      = '0';          /* sits at document top, behind scrolled page */
+    scene1.style.transform = 'translateY(-100vh)'; /* hide above screen */
+  }
+
+  /* ── SCENE 2 ──────────────────────────
+     Before:   parked below scene1 exit
+     Active:   fixed to screen
+     After:    parked, held at its end
+  ──────────────────────────────────────*/
+  if (sy < s2StPx) {
+    /* not yet — sit right where scene1 ends */
+    scene2.style.position  = 'fixed';
+    scene2.style.top       = '0';
+    scene2.style.transform = 'translateY(100vh)'; /* just off bottom */
+  } else if (sy >= s2StPx && sy < s2EndPx) {
+    /* active */
+    scene2.style.position  = 'fixed';
+    scene2.style.top       = '0';
+    scene2.style.transform = 'translateY(0)';
+
+    /* scrub video */
+    if (video.readyState >= 2 && video.duration) {
+      const p           = (sy - s2StPx) / (s2EndPx - s2StPx);
+      const cp          = Math.min(Math.max(p, 0), 1);
+      video.currentTime = cp * video.duration;
+      progressBar.style.width = (cp * 100) + '%';
+    }
+  } else {
+    /* past — push above screen */
+    scene2.style.position  = 'absolute';
+    scene2.style.top       = '0';
+    scene2.style.transform = 'translateY(-100vh)';
+    if (video.readyState >= 2 && video.duration) {
+      video.currentTime = video.duration;
+      progressBar.style.width = '100%';
+    }
+  }
+
+  /* ── SCENE 3 ──────────────────────────
+     Before:   parked off bottom
+     Active:   fixed to screen
+     After:    parked off top (page ends)
+  ──────────────────────────────────────*/
+  if (sy < s3StPx) {
+    scene3.style.position  = 'fixed';
+    scene3.style.top       = '0';
+    scene3.style.transform = 'translateY(100vh)';
+  } else if (sy >= s3StPx && sy < s3EndPx) {
+    scene3.style.position  = 'fixed';
+    scene3.style.top       = '0';
+    scene3.style.transform = 'translateY(0)';
+
+    /* GSAP switch entrance — fires once */
+    if (!s3SwitchShown) {
+      s3SwitchShown = true;
+      gsap.fromTo('#s3-switch-wrap',
+        { opacity: 0, scale: 0.5, y: -24, visibility: 'visible' },
+        { opacity: 1, scale: 1,   y: 0,
+          duration: 0.9, ease: 'back.out(1.7)', delay: 0.35 }
+      );
+    }
+  } else {
+    scene3.style.position  = 'fixed';
+    scene3.style.top       = '0';
+    scene3.style.transform = 'translateY(-100vh)';
+  }
+}
+
+/* ─────────────────────────────────────────
+   GSAP SCROLL ANIMATIONS  (% of 1200vh)
+
+   S1 panel 1 out  :  5% –  12%
+   S1 panel 2 in   : 11% –  18%
+   S1 panel 2 out  : 20% –  26%
+   S1 banner exit  : 26% –  33%
+
+   S2 panel A in   : 36% –  44%
+   S2 panel A out  : 46% –  53%
+   S2 panel B in   : 55% –  61%
+   S2 panel B out  : 62% –  66%
+───────────────────────────────────────── */
+gsap.set('#s1p1', { opacity: 1, y: 0 });
+
+/* header */
+gsap.to('#site-header', {
+  yPercent: -115,
+  scrollTrigger: { trigger: '#page', start: '1% top', end: '3% top', scrub: 0.8 }
+});
+gsap.to('#scroll-hint', {
+  autoAlpha: 0,
+  scrollTrigger: { trigger: '#page', start: '1% top', end: '2.5% top', scrub: true }
+});
+
+/* S1 panels */
+gsap.to('#s1p1', {
+  opacity: 0, y: -46,
+  scrollTrigger: { trigger: '#page', start: '5% top', end: '12% top', scrub: 1 }
+});
+gsap.fromTo('#s1p2',
+  { opacity: 0, y: 52 },
+  { opacity: 1, y: 0,
+    scrollTrigger: { trigger: '#page', start: '11% top', end: '18% top', scrub: 1 } }
+);
+gsap.to('#s1p2', {
+  opacity: 0, y: -46,
+  scrollTrigger: { trigger: '#page', start: '20% top', end: '26% top', scrub: 1 }
+});
+
+/* S1 banner exit */
+gsap.to('#s1-banner', {
+  yPercent: -20, scale: 0.93,
+  scrollTrigger: { trigger: '#page', start: '26% top', end: '33% top', scrub: 1.2 }
+});
+gsap.to('#scene1', {
+  autoAlpha: 0,
+  scrollTrigger: { trigger: '#page', start: '30% top', end: '33% top', scrub: 1 }
+});
+
+/* S2 panels */
+gsap.fromTo('#s2p1',
+  { opacity: 0, y: 48 },
+  { opacity: 1, y: 0,
+    scrollTrigger: { trigger: '#page', start: '36% top', end: '44% top', scrub: 1 } }
+);
+gsap.to('#s2p1', {
+  opacity: 0, y: -46,
+  scrollTrigger: { trigger: '#page', start: '46% top', end: '53% top', scrub: 1 }
+});
+gsap.fromTo('#s2p2',
+  { opacity: 0, y: 48 },
+  { opacity: 1, y: 0,
+    scrollTrigger: { trigger: '#page', start: '55% top', end: '61% top', scrub: 1 } }
+);
+gsap.to('#s2p2', {
+  opacity: 0, y: -46,
+  scrollTrigger: { trigger: '#page', start: '62% top', end: '66% top', scrub: 1 }
+});
+
+/* ─────────────────────────────────────────
+   SCENE 3 SWITCH TOGGLE
+───────────────────────────────────────── */
+const s3Switch     = document.getElementById('s3-switch');
+const s3DarkVeil   = document.getElementById('s3-dark-veil');
+const s3LabelLight = document.getElementById('s3-label-light');
+const s3LabelDark  = document.getElementById('s3-label-dark');
+let isDark = false;
+
+s3LabelLight.classList.add('is-active');
+
+function toggleLightDark() {
+  isDark = !isDark;
+  s3DarkVeil.classList.toggle('is-dark', isDark);
+  s3Switch.classList.toggle('is-dark', isDark);
+  s3Switch.setAttribute('aria-checked', String(isDark));
+  s3LabelLight.classList.toggle('is-active', !isDark);
+  s3LabelDark.classList.toggle('is-active',   isDark);
+  gsap.fromTo('#s3-switch-wrap',
+    { scale: 0.92 },
+    { scale: 1, duration: 0.35, ease: 'back.out(2)' }
+  );
+}
+
+s3Switch.addEventListener('click', toggleLightDark);
+s3Switch.addEventListener('keydown', e => {
+  if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleLightDark(); }
+});
+
+/* ─────────────────────────────────────────
+   BIND EVENTS
+───────────────────────────────────────── */
+window.addEventListener('scroll',  manageScenes, { passive: true });
+window.addEventListener('resize',  () => { ScrollTrigger.refresh(); manageScenes(); });
+manageScenes(); /* run once on load */
+</script>
+</body>
+</html>
