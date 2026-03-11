@@ -195,28 +195,47 @@ function offeringsInit() {
         watcher.observe(offeringsSection, { childList: true, subtree: true });
     }
 
+    // =========================================================================
+    // resetAllActiveHotspots
+    //
+    // AEM Interactive Media can mark ANY hotspot (not always the first) as
+    // tabindex="0" by default — in this case the 3rd one (Wind Energy) is active.
+    // querySelector() only finds the FIRST match in DOM order, so if AEM activates
+    // the 3rd button, a single querySelector reset followed by AEM re-activating it
+    // leaves it stuck as active.
+    //
+    // Fix: querySelectorAll resets EVERY tabindex="0" button in one pass.
+    // Also resets AEM's own "state" attribute (set to "active" on the marker div)
+    // which controls the green highlight styling independently of tabindex.
+    // =========================================================================
+    function resetAllActiveHotspots() {
+        let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
+        if (xfMainContainer) { xfMainContainer.style.display = 'none'; }
+
+        // Reset ALL active hotspot buttons — not just the first one
+        let activeHotspots = offeringsSection?.querySelectorAll('div[tabindex="0"][role="button"]');
+        activeHotspots?.forEach(function (hotspot) {
+            hotspot.setAttribute('tabindex', '-1');
+            hotspot.setAttribute('userclicked', 'false');
+            // Also reset AEM's state attribute that drives the green active styling
+            if (hotspot.getAttribute('state') === 'active') {
+                hotspot.setAttribute('state', '');
+            }
+        });
+    }
+
     function onHotspotButtonFound() {
         handleOfferingsComponentUpdate();
 
-        // Immediately reset AEM's default active hotspot (tabindex="0" -> "-1")
-        let activeHotspot = offeringsSection?.querySelector('div[tabindex="0"][role="button"]');
-        let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
-        if (activeHotspot && xfMainContainer) {
-            activeHotspot.setAttribute('tabindex', '-1');
-            xfMainContainer.style.display = 'none';
-        } else if (activeHotspot) {
-            activeHotspot.setAttribute('tabindex', '-1');
-            activeHotspot.setAttribute('userclicked', 'false');
-        }
+        // Immediately reset all AEM-default active hotspots
+        resetAllActiveHotspots();
 
         // Wait for DOM to settle, then hand off to rAF loop which waits for
         // the browser to paint before measuring positions for label placement.
         settleTimer = setTimeout(function () {
             settleTimer = null;
-            // Reset any straggler AEM may have re-activated during the settle window
-            offeringsSection
-                .querySelector('div[tabindex="0"][role="button"]')
-                ?.setAttribute('tabindex', '-1');
+            // Reset again — AEM sometimes re-activates a hotspot after our first reset
+            resetAllActiveHotspots();
             // Delegate to rAF loop — only renders once layout is fully painted
             renderLabelsWhenPainted();
         }, 500);
