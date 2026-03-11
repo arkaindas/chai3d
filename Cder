@@ -125,77 +125,74 @@ function offeringsInit() {
     }
 
     // =========================================================================
-    // renderLabelsWhenReady
+    // waitForOverlayContainer
     //
-    // Console output on failing load proved:
-    //   - All 8 buttons ARE in DOM with tabindex="-1" and correct offsetLeft values
-    //   - Labels in DOM: 0 — setInactiveHotspotLabels never ran successfully
-    //   - pollInterval: false — poller stopped (found tabindex="0" momentarily)
-    //   - AEM sets tabindex="0" briefly during init then resets ALL to "-1"
+    // KEY DISCOVERY from DOM inspection:
+    // The tabindex="0" is set on the overlayContainer div
+    // (id="..._imageMapEffect_overlayContainer"), NOT on any role="button" div.
+    // All role="button" hotspot divs are always tabindex="-1".
     //
-    // The fix: poll for buttons having non-zero offsetWidth (proves interactive
-    // media library has fully initialised and painted), then render labels.
-    // This works for BOTH cases:
-    //   Case A — AEM sets one button to tabindex="0" during init (normal)
-    //   Case B — AEM sets all buttons to tabindex="-1" immediately (Target)
-    // We no longer depend on tabindex="0" existing at all.
+    // This means every previous detection selector
+    // 'div[tabindex="0"][role="button"]' NEVER matched anything — explaining
+    // ALL intermittent failures from the very beginning.
+    //
+    // The overlayContainer getting tabindex="0" is the correct signal that
+    // AEM's Interactive Media library has fully initialised and all hotspot
+    // buttons are in the DOM with correct positions.
     // =========================================================================
-    function renderLabelsWhenReady() {
-        let attempts = 0;
-        let maxAttempts = 150; // 15 seconds at 100ms
+    function waitForOverlayContainer() {
+        let found = false;
 
+        function getOverlayContainer() {
+            // The overlayContainer is the direct parent of all role="button" divs.
+            // It gets tabindex="0" set by AEM's s7 Interactive Media library on init.
+            return offeringsSection.querySelector('[id*="overlayContainer"]') ||
+                   offeringsSection.querySelector('[id*="imageMapEffect"]');
+        }
+
+        function trigger() {
+            if (found) return;
+            found = true;
+            if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+            onOverlayContainerReady();
+        }
+
+        // Poll for the overlayContainer to appear in DOM
+        let elapsed = 0;
         pollInterval = setInterval(function () {
-            attempts++;
-
-            let buttons = offeringsSection.querySelectorAll('div[role="button"]');
-
-            // Wait until buttons exist AND have non-zero width (library fully painted)
-            if (buttons.length > 0 && buttons[0].offsetWidth > 0) {
-                clearInterval(pollInterval);
-                pollInterval = null;
-
-                // Hide xf panel
-                let xfMainContainer = offeringsSection.querySelector('.xf-main-container');
-                if (xfMainContainer) { xfMainContainer.style.display = 'none'; }
-
-                // Reset whichever button AEM marked active — then render labels
-                buttons.forEach(function (btn) {
-                    if (btn.getAttribute('tabindex') === '0') {
-                        btn.setAttribute('tabindex', '-1');
-                        btn.setAttribute('userclicked', 'false');
-                    }
-                });
-
-                // Small defer to let AEM finish any post-paint attribute writes
-                settleTimer = setTimeout(function () {
-                    settleTimer = null;
-                    // Final pass — reset any button AEM re-activated during defer
-                    offeringsSection.querySelectorAll('div[tabindex="0"][role="button"]').forEach(function (btn) {
-                        btn.setAttribute('tabindex', '-1');
-                        btn.setAttribute('userclicked', 'false');
-                    });
-                    setInactiveHotspotLabels();
-                }, 300);
-
-                return;
-            }
-
-            if (attempts >= maxAttempts) {
+            elapsed += 100;
+            let container = getOverlayContainer();
+            if (container) {
+                trigger();
+            } else if (elapsed >= 15000) {
                 clearInterval(pollInterval);
                 pollInterval = null;
             }
         }, 100);
     }
 
+    function onOverlayContainerReady() {
+        handleOfferingsComponentUpdate();
+
+        // Hide xf panel if open
+        let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
+        if (xfMainContainer) { xfMainContainer.style.display = 'none'; }
+
+        // Defer label rendering to let the s7 library finish positioning all hotspots.
+        // 500ms matches the original code's settle timing which worked on normal loads.
+        settleTimer = setTimeout(function () {
+            settleTimer = null;
+            setInactiveHotspotLabels();
+        }, 500);
+    }
+
     // ─── Bootstrap ──────────────────────────────────────────────────────────────
     offeringsSection.addEventListener('click', handleOfferingsSectionClick);
-    handleOfferingsComponentUpdate();
-    renderLabelsWhenReady();
+    waitForOverlayContainer();
 }
 
 // =============================================================================
-// Entry points — DOMContentLoaded for normal load,
-// at-content-rendering-succeeded for Adobe Target injection.
+// Entry points
 // =============================================================================
 function bootstrap() {
     console.log('Offerings component: initialising...');
@@ -209,7 +206,7 @@ if (document.readyState === 'loading') {
     bootstrap();
 }
 
-// Adobe Target fires this event each time it finishes injecting activity content
+// Adobe Target fires this when it finishes injecting activity content
 document.addEventListener('at-content-rendering-succeeded', function () {
     console.log('Offerings component: at-content-rendering-succeeded, re-initialising...');
     offeringsInit();
