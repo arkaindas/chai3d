@@ -73,13 +73,13 @@ function offeringsInit() {
         elements?.forEach(element => {
             let ariaLabel = element?.getAttribute('aria-label');
             let labelText = ariaLabel?.split('Quick View ')[1];
+            if (!labelText) return;
             let headding = document.createElement('h3');
-            let rect = element?.getBoundingClientRect();                    // reused below for left calc
+            let rect = element.getBoundingClientRect();
             let adjustedBottom = calculateAdjustedBottom(element, element?.offsetParent?.getBoundingClientRect());
             headding.textContent = labelText;
             headding.style.position = 'absolute';
             headding.style.bottom = `${adjustedBottom + 8}px`;
-            // FIX: element.getX() is not a standard DOM API — use rect.left relative to parent
             headding.style.left = `${rect.left - parentContainerLeft}px`;
             headding.classList.add('inactive-hotspot-label');
             parentContainer?.appendChild(headding);
@@ -170,16 +170,30 @@ function offeringsInit() {
     }
 
     function onHotspotButtonFound() {
-        handleOfferingsComponentUpdate();   // attach XF MutationObserver (only once)
-        handleOfferingsSectionClick();      // reset initial active hotspot state
+        handleOfferingsComponentUpdate();       // attach XF MutationObserver (only once)
 
-        // After the 500ms settle (same timing as tabindex reset), all hotspot
-        // buttons will have tabindex="-1" and be queryable by setInactiveHotspotLabels.
-        // Calling it here ensures labels appear on load, not only after a click.
+        // Reset the default AEM-active hotspot (tabindex="0") without calling
+        // setInactiveHotspotLabels yet — getBoundingClientRect() is unreliable
+        // at this point since the XF panel is still settling in the DOM.
+        let activeHotspot = offeringsSection?.querySelector('div[tabindex="0"][role="button"]');
+        let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
+        if (activeHotspot && xfMainContainer) {
+            activeHotspot.setAttribute('tabindex', '-1');
+            xfMainContainer.style.display = 'none';
+        } else if (activeHotspot) {
+            activeHotspot.setAttribute('tabindex', '-1');
+            activeHotspot.setAttribute('userclicked', 'false');
+        }
+
+        // Wait for DOM to fully settle before reading getBoundingClientRect()
+        // for label positioning. 500ms matches original tabindex-reset timing.
         setTimeout(function () {
+            // Catch any straggler AEM may have re-activated after our reset above
             offeringsSection
                 .querySelector('div[tabindex="0"][role="button"]')
                 ?.setAttribute('tabindex', '-1');
+
+            // Now all buttons are tabindex="-1" and layout is stable — safe to render labels
             setInactiveHotspotLabels();
         }, 500);
     }
