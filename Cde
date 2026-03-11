@@ -173,10 +173,14 @@ function offeringsInit() {
         handleOfferingsComponentUpdate();   // attach XF MutationObserver (only once)
         handleOfferingsSectionClick();      // reset initial active hotspot state
 
+        // After the 500ms settle (same timing as tabindex reset), all hotspot
+        // buttons will have tabindex="-1" and be queryable by setInactiveHotspotLabels.
+        // Calling it here ensures labels appear on load, not only after a click.
         setTimeout(function () {
             offeringsSection
                 .querySelector('div[tabindex="0"][role="button"]')
                 ?.setAttribute('tabindex', '-1');
+            setInactiveHotspotLabels();
         }, 500);
     }
 
