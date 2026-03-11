@@ -6,18 +6,33 @@ function offeringsInit() {
     let offeringsSection = document.querySelector('.offerings-main-container');
     if (!offeringsSection) return;
 
-    // ─── Guard: prevent double-initialisation (e.g. Target re-rendering) ────────
-    if (offeringsSection.dataset.offeringsInitialised) return;
-    offeringsSection.dataset.offeringsInitialised = 'true';
+    // ─── Teardown any previous run before re-initialising ───────────────────────
+    // Adobe Target re-renders the component in-place without a full page reload.
+    // The old guard (dataset flag + return) caused offeringsInit() to bail out on
+    // every subsequent render, so labels never showed after the first load.
+    // Instead, we store a cleanup fn on the element and call it before each init,
+    // so every render — including Target re-renders — gets a fully clean slate.
+    if (typeof offeringsSection._offeringsCleanup === 'function') {
+        offeringsSection._offeringsCleanup();
+    }
 
-    // ─── Single MutationObserver instance – never stacked ───────────────────────
+    // ─── State for this init run ─────────────────────────────────────────────────
     let xfObserver = null;
-
-    // ─── xfMainContainer click listener attached only once ──────────────────────
     let xfClickListenerAttached = false;
+    let settleTimer = null;
+
+    // ─── Cleanup fn: disconnect observers, clear timers, remove click listener ───
+    // Called at the top of the next offeringsInit() run to avoid stale state.
+    offeringsSection._offeringsCleanup = function () {
+        if (xfObserver) { xfObserver.disconnect(); xfObserver = null; }
+        if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
+        offeringsSection.removeEventListener('click', handleOfferingsSectionClick);
+        offeringsSection._offeringsCleanup = null;
+        xfClickListenerAttached = false;
+    };
 
     // =========================================================================
-    // calculateAdjustedBottom — untouched, as requested
+    // calculateAdjustedBottom — untouched
     // =========================================================================
     function calculateAdjustedBottom(selectedHotspot, parentBoundingRect) {
         if (parentBoundingRect) {
@@ -30,7 +45,7 @@ function offeringsInit() {
     }
 
     // =========================================================================
-    // setXFMainContainer — untouched, except click listener now attached once
+    // setXFMainContainer — untouched, except click listener attached only once
     // =========================================================================
     function setXFMainContainer(selectedHotspot, parentBoundingRect) {
         let adjustedBottom = calculateAdjustedBottom(selectedHotspot, parentBoundingRect);
@@ -46,7 +61,6 @@ function offeringsInit() {
         xfMainContainer?.classList.toggle('extremen-right', xfMainContainerRight > parentBoundingRect.right);
         xfMainContainer.style.bottom = (adjustedBottom + 62) + 'px';
 
-        // FIX: attach stopPropagation listener only once to avoid listener stacking
         if (!xfClickListenerAttached) {
             xfMainContainer.addEventListener('click', function (event) {
                 event?.stopPropagation();
@@ -56,8 +70,7 @@ function offeringsInit() {
     }
 
     // =========================================================================
-    // setInactiveHotspotLabels — fix: replaced element.getX() (non-standard)
-    //                            with getBoundingClientRect()-based left value
+    // setInactiveHotspotLabels — untouched logic
     // =========================================================================
     function setInactiveHotspotLabels() {
         let elements = offeringsSection?.querySelectorAll('[tabindex="-1"][role="button"]');
@@ -87,20 +100,14 @@ function offeringsInit() {
     }
 
     // =========================================================================
-    // handleOfferingsComponentUpdate — FIX: ensure only one MutationObserver
-    //                                  is ever active (disconnect before re-use)
+    // handleOfferingsComponentUpdate — single observer, disconnects before reuse
     // =========================================================================
     function handleOfferingsComponentUpdate() {
         let targetNode = document.querySelector('.offerings-main-container #tatapower-xf');
         if (!targetNode) return;
 
-        // Disconnect any previously created observer before creating a new one
-        if (xfObserver) {
-            xfObserver.disconnect();
-            xfObserver = null;
-        }
+        if (xfObserver) { xfObserver.disconnect(); xfObserver = null; }
 
-        let config = { childList: true, subtree: true };
         xfObserver = new MutationObserver(function (mutationsList) {
             for (let mutation of mutationsList) {
                 if (mutation.type === 'childList') {
@@ -114,11 +121,11 @@ function offeringsInit() {
             }
         });
 
-        xfObserver.observe(targetNode, config);
+        xfObserver.observe(targetNode, { childList: true, subtree: true });
     }
 
     // =========================================================================
-    // handleOfferingsSectionClick — untouched logic, kept identical
+    // handleOfferingsSectionClick — untouched logic
     // =========================================================================
     function handleOfferingsSectionClick() {
         let selectedHotspot = offeringsSection?.querySelector('div[tabindex="0"][role="button"]');
@@ -134,24 +141,9 @@ function offeringsInit() {
     }
 
     // =========================================================================
-    // waitForHotspotButton
-    //
-    // FIX: Replaces the fragile setInterval + removeActiveHotspotInitially flag.
-    //
-    // Uses a MutationObserver on offeringsSection to detect when AEM Interactive
-    // Media injects the hotspot button into the DOM. This is event-driven, so it
-    // works reliably regardless of whether the page loads normally or via Adobe
-    // Target (which injects content asynchronously at unpredictable times,
-    // causing the old setInterval to either fire too early or miss the element).
-    //
-    // Once the button is found:
-    //   1. The watcher observer is disconnected immediately (no lingering polling).
-    //   2. handleOfferingsComponentUpdate() is called once to attach the XF observer.
-    //   3. handleOfferingsSectionClick() resets the initial active state.
-    //   4. After a 500ms settle, tabindex is set to -1 (matches original behaviour).
+    // waitForHotspotButton — event-driven replacement for setInterval polling
     // =========================================================================
     function waitForHotspotButton() {
-        // If button already exists in DOM (normal page load / fast render), handle immediately
         let existingButton = offeringsSection.querySelector('div[tabindex="0"][role="button"]');
         if (existingButton) {
             onHotspotButtonFound();
@@ -161,7 +153,7 @@ function offeringsInit() {
         let watcher = new MutationObserver(function (_, obs) {
             let button = offeringsSection.querySelector('div[tabindex="0"][role="button"]');
             if (button) {
-                obs.disconnect();           // stop watching the moment the button appears
+                obs.disconnect();
                 onHotspotButtonFound();
             }
         });
@@ -170,11 +162,10 @@ function offeringsInit() {
     }
 
     function onHotspotButtonFound() {
-        handleOfferingsComponentUpdate();       // attach XF MutationObserver (only once)
+        handleOfferingsComponentUpdate();
 
-        // Reset the default AEM-active hotspot (tabindex="0") without calling
-        // setInactiveHotspotLabels yet — getBoundingClientRect() is unreliable
-        // at this point since the XF panel is still settling in the DOM.
+        // Reset the AEM-default active hotspot immediately, but defer label rendering
+        // until layout is stable (getBoundingClientRect returns correct values).
         let activeHotspot = offeringsSection?.querySelector('div[tabindex="0"][role="button"]');
         let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
         if (activeHotspot && xfMainContainer) {
@@ -185,15 +176,14 @@ function offeringsInit() {
             activeHotspot.setAttribute('userclicked', 'false');
         }
 
-        // Wait for DOM to fully settle before reading getBoundingClientRect()
-        // for label positioning. 500ms matches original tabindex-reset timing.
-        setTimeout(function () {
-            // Catch any straggler AEM may have re-activated after our reset above
+        // Track the timer so cleanup can cancel it if Target re-renders mid-flight
+        settleTimer = setTimeout(function () {
+            settleTimer = null;
+            // Reset any straggler AEM may have re-activated during the settle window
             offeringsSection
                 .querySelector('div[tabindex="0"][role="button"]')
                 ?.setAttribute('tabindex', '-1');
-
-            // Now all buttons are tabindex="-1" and layout is stable — safe to render labels
+            // Layout is now stable — render labels
             setInactiveHotspotLabels();
         }, 500);
     }
@@ -204,13 +194,7 @@ function offeringsInit() {
 }
 
 // =============================================================================
-// Entry point
-//
-// FIX: Removed the nested DOMContentLoaded inside offeringsInit().
-//      The outer listener here already guarantees the DOM is ready before
-//      offeringsInit() runs. Adobe Target fires its own rendering events
-//      after DOMContentLoaded; the MutationObserver inside waitForHotspotButton
-//      handles that async window correctly.
+// Entry point — single DOMContentLoaded, no nesting
 // =============================================================================
 document.addEventListener('DOMContentLoaded', function () {
     console.log('Offerings component: DOMContentLoaded fired, initialising...');
