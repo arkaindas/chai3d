@@ -6,7 +6,6 @@ function offeringsInit() {
     let offeringsSection = document.querySelector('.offerings-main-container');
     if (!offeringsSection) return;
 
-    // Teardown previous run (Target re-renders in-place without full page reload)
     if (typeof offeringsSection._offeringsCleanup === 'function') {
         offeringsSection._offeringsCleanup();
     }
@@ -63,7 +62,7 @@ function offeringsInit() {
     }
 
     // =========================================================================
-    // setInactiveHotspotLabels — renders labels for all inactive hotspots
+    // setInactiveHotspotLabels — untouched logic
     // =========================================================================
     function setInactiveHotspotLabels() {
         let elements = offeringsSection?.querySelectorAll('[tabindex="-1"][role="button"]');
@@ -126,99 +125,77 @@ function offeringsInit() {
     }
 
     // =========================================================================
-    // waitForActiveHotspot
+    // renderLabelsWhenReady
     //
-    // AEM Interactive Media always renders exactly one hotspot as tabindex="0"
-    // (the default selected one). We wait for that specific button as it signals
-    // the interactive media library has fully initialised and all hotspots are
-    // in the DOM with correct positions.
+    // Console output on failing load proved:
+    //   - All 8 buttons ARE in DOM with tabindex="-1" and correct offsetLeft values
+    //   - Labels in DOM: 0 — setInactiveHotspotLabels never ran successfully
+    //   - pollInterval: false — poller stopped (found tabindex="0" momentarily)
+    //   - AEM sets tabindex="0" briefly during init then resets ALL to "-1"
     //
-    // Uses setInterval (original approach) which is the most reliable method
-    // for this specific case — it keeps polling until AEM's own library JS
-    // finishes its setup and sets the active tabindex, regardless of whether
-    // that happens before or after our script runs.
+    // The fix: poll for buttons having non-zero offsetWidth (proves interactive
+    // media library has fully initialised and painted), then render labels.
+    // This works for BOTH cases:
+    //   Case A — AEM sets one button to tabindex="0" during init (normal)
+    //   Case B — AEM sets all buttons to tabindex="-1" immediately (Target)
+    // We no longer depend on tabindex="0" existing at all.
     // =========================================================================
-    function waitForActiveHotspot() {
-        let found = false;
+    function renderLabelsWhenReady() {
+        let attempts = 0;
+        let maxAttempts = 150; // 15 seconds at 100ms
 
         pollInterval = setInterval(function () {
-            if (found) return;
-            let activeHotspot = offeringsSection.querySelector('div[tabindex="0"][role="button"]');
-            if (activeHotspot) {
-                found = true;
+            attempts++;
+
+            let buttons = offeringsSection.querySelectorAll('div[role="button"]');
+
+            // Wait until buttons exist AND have non-zero width (library fully painted)
+            if (buttons.length > 0 && buttons[0].offsetWidth > 0) {
                 clearInterval(pollInterval);
                 pollInterval = null;
-                onActiveHotspotFound(activeHotspot);
+
+                // Hide xf panel
+                let xfMainContainer = offeringsSection.querySelector('.xf-main-container');
+                if (xfMainContainer) { xfMainContainer.style.display = 'none'; }
+
+                // Reset whichever button AEM marked active — then render labels
+                buttons.forEach(function (btn) {
+                    if (btn.getAttribute('tabindex') === '0') {
+                        btn.setAttribute('tabindex', '-1');
+                        btn.setAttribute('userclicked', 'false');
+                    }
+                });
+
+                // Small defer to let AEM finish any post-paint attribute writes
+                settleTimer = setTimeout(function () {
+                    settleTimer = null;
+                    // Final pass — reset any button AEM re-activated during defer
+                    offeringsSection.querySelectorAll('div[tabindex="0"][role="button"]').forEach(function (btn) {
+                        btn.setAttribute('tabindex', '-1');
+                        btn.setAttribute('userclicked', 'false');
+                    });
+                    setInactiveHotspotLabels();
+                }, 300);
+
+                return;
+            }
+
+            if (attempts >= maxAttempts) {
+                clearInterval(pollInterval);
+                pollInterval = null;
             }
         }, 100);
-
-        // Safety: stop polling after 15s if AEM never sets the active hotspot
-        setTimeout(function () {
-            if (!found) {
-                clearInterval(pollInterval);
-                pollInterval = null;
-            }
-        }, 15000);
-    }
-
-    function onActiveHotspotFound(activeHotspot) {
-        handleOfferingsComponentUpdate();
-
-        // Hide xf panel and reset active hotspot
-        let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
-        if (xfMainContainer) { xfMainContainer.style.display = 'none'; }
-        activeHotspot.setAttribute('tabindex', '-1');
-        activeHotspot.setAttribute('userclicked', 'false');
-
-        // After resetting, wait for AEM's library to finish any post-init attribute
-        // writes (it sometimes re-sets tabindex="0" once more after initial render),
-        // then render labels when the layout is confirmed stable via rAF.
-        settleTimer = setTimeout(function () {
-            settleTimer = null;
-            // Final reset pass in case AEM re-activated during settle window
-            let reactivated = offeringsSection.querySelector('div[tabindex="0"][role="button"]');
-            if (reactivated) {
-                reactivated.setAttribute('tabindex', '-1');
-                reactivated.setAttribute('userclicked', 'false');
-            }
-            // Use rAF to confirm layout is painted before measuring positions
-            let attempts = 0;
-            function tryRender() {
-                rafHandle = null;
-                let btn = offeringsSection.querySelector('[tabindex="-1"][role="button"]');
-                if (btn && btn.offsetWidth > 0) {
-                    setInactiveHotspotLabels();
-                    return;
-                }
-                attempts++;
-                if (attempts < 100) {
-                    rafHandle = requestAnimationFrame(tryRender);
-                }
-            }
-            rafHandle = requestAnimationFrame(tryRender);
-        }, 500);
     }
 
     // ─── Bootstrap ──────────────────────────────────────────────────────────────
     offeringsSection.addEventListener('click', handleOfferingsSectionClick);
-    waitForActiveHotspot();
+    handleOfferingsComponentUpdate();
+    renderLabelsWhenReady();
 }
 
 // =============================================================================
-// Entry points
-//
-// THE ROOT CAUSE of the intermittent Adobe Target issue:
-// The original code registered a DOMContentLoaded listener INSIDE offeringsInit(),
-// but offeringsInit() itself was called from an outer DOMContentLoaded listener.
-// When Target injects the component after page load, the outer listener fires
-// offeringsInit(), but the INNER DOMContentLoaded never fires (already past),
-// so the setInterval that detects hotspot buttons never starts.
-//
-// Fix: Listen to BOTH events independently:
-//   - DOMContentLoaded: normal page load
-//   - at-content-rendering-succeeded: Adobe Target's own event fired when it
-//     finishes injecting/rendering an activity's content into the page.
-//     This is the correct hook for Target-delivered components.
+// Entry points — DOMContentLoaded for normal load,
+// at-content-rendering-succeeded for Adobe Target injection.
 // =============================================================================
 function bootstrap() {
     console.log('Offerings component: initialising...');
@@ -226,15 +203,14 @@ function bootstrap() {
     console.log('Offerings component: initialisation complete.');
 }
 
-// Normal page load
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bootstrap);
 } else {
     bootstrap();
 }
 
-// Adobe Target injection — fires every time Target renders an activity
+// Adobe Target fires this event each time it finishes injecting activity content
 document.addEventListener('at-content-rendering-succeeded', function () {
-    console.log('Offerings component: at-content-rendering-succeeded received, re-initialising...');
+    console.log('Offerings component: at-content-rendering-succeeded, re-initialising...');
     offeringsInit();
 });
