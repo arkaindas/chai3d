@@ -26,9 +26,6 @@ function offeringsInit() {
         xfClickListenerAttached = false;
     };
 
-    // =========================================================================
-    // calculateAdjustedBottom — untouched
-    // =========================================================================
     function calculateAdjustedBottom(selectedHotspot, parentBoundingRect) {
         if (parentBoundingRect) {
             let boundingRect = selectedHotspot?.getBoundingClientRect();
@@ -39,9 +36,6 @@ function offeringsInit() {
         }
     }
 
-    // =========================================================================
-    // setXFMainContainer — untouched, click listener attached only once
-    // =========================================================================
     function setXFMainContainer(selectedHotspot, parentBoundingRect) {
         let adjustedBottom = calculateAdjustedBottom(selectedHotspot, parentBoundingRect);
         let position = selectedHotspot?.getBoundingClientRect();
@@ -61,9 +55,6 @@ function offeringsInit() {
         }
     }
 
-    // =========================================================================
-    // setInactiveHotspotLabels — untouched logic
-    // =========================================================================
     function setInactiveHotspotLabels() {
         let elements = offeringsSection?.querySelectorAll('[tabindex="-1"][role="button"]');
         if (!elements?.length) return;
@@ -86,9 +77,6 @@ function offeringsInit() {
         });
     }
 
-    // =========================================================================
-    // handleOfferingsComponentUpdate — single observer, disconnects before reuse
-    // =========================================================================
     function handleOfferingsComponentUpdate() {
         let targetNode = document.querySelector('.offerings-main-container #tatapower-xf');
         if (!targetNode) return;
@@ -108,62 +96,33 @@ function offeringsInit() {
         xfObserver.observe(targetNode, { childList: true, subtree: true });
     }
 
-    // =========================================================================
-    // handleOfferingsSectionClick — untouched logic
-    // =========================================================================
     function handleOfferingsSectionClick() {
         let selectedHotspot = offeringsSection?.querySelector('div[tabindex="0"][role="button"]');
         let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
         if (selectedHotspot && xfMainContainer) {
-            selectedHotspot?.setAttribute("tabindex", "-1");
+            selectedHotspot?.setAttribute('tabindex', '-1');
             xfMainContainer.style.display = 'none';
         } else if (selectedHotspot) {
-            selectedHotspot?.setAttribute("tabindex", "-1");
-            selectedHotspot?.setAttribute("userclicked", "false");
+            selectedHotspot?.setAttribute('tabindex', '-1');
+            selectedHotspot?.setAttribute('userclicked', 'false');
         }
         setInactiveHotspotLabels();
     }
 
-    // =========================================================================
-    // waitForOverlayContainer
-    //
-    // KEY DISCOVERY from DOM inspection:
-    // The tabindex="0" is set on the overlayContainer div
-    // (id="..._imageMapEffect_overlayContainer"), NOT on any role="button" div.
-    // All role="button" hotspot divs are always tabindex="-1".
-    //
-    // This means every previous detection selector
-    // 'div[tabindex="0"][role="button"]' NEVER matched anything — explaining
-    // ALL intermittent failures from the very beginning.
-    //
-    // The overlayContainer getting tabindex="0" is the correct signal that
-    // AEM's Interactive Media library has fully initialised and all hotspot
-    // buttons are in the DOM with correct positions.
-    // =========================================================================
     function waitForOverlayContainer() {
         let found = false;
-
-        function getOverlayContainer() {
-            // The overlayContainer is the direct parent of all role="button" divs.
-            // It gets tabindex="0" set by AEM's s7 Interactive Media library on init.
-            return offeringsSection.querySelector('[id*="overlayContainer"]') ||
-                   offeringsSection.querySelector('[id*="imageMapEffect"]');
-        }
-
-        function trigger() {
-            if (found) return;
-            found = true;
-            if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-            onOverlayContainerReady();
-        }
-
-        // Poll for the overlayContainer to appear in DOM
         let elapsed = 0;
+
         pollInterval = setInterval(function () {
             elapsed += 100;
-            let container = getOverlayContainer();
+            let container = offeringsSection.querySelector('[id*="overlayContainer"]') ||
+                            offeringsSection.querySelector('[id*="imageMapEffect"]');
             if (container) {
-                trigger();
+                if (found) return;
+                found = true;
+                clearInterval(pollInterval);
+                pollInterval = null;
+                onOverlayContainerReady();
             } else if (elapsed >= 15000) {
                 clearInterval(pollInterval);
                 pollInterval = null;
@@ -173,40 +132,25 @@ function offeringsInit() {
 
     function onOverlayContainerReady() {
         handleOfferingsComponentUpdate();
-
-        // Hide xf panel if open
         let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
         if (xfMainContainer) { xfMainContainer.style.display = 'none'; }
-
-        // Defer to let s7 library finish positioning hotspots, then reset the
-        // one button AEM marks as tabindex="0" (active) and render all labels.
         settleTimer = setTimeout(function () {
             settleTimer = null;
-
-            // Reset whichever button AEM made active — do it inside the timeout
-            // so we catch it after s7 has finished its own post-init attribute writes
             let activeBtn = offeringsSection.querySelector('div[tabindex="0"][role="button"]');
             if (activeBtn) {
                 activeBtn.setAttribute('tabindex', '-1');
                 activeBtn.setAttribute('userclicked', 'false');
             }
-
             setInactiveHotspotLabels();
         }, 500);
     }
 
-    // ─── Bootstrap ──────────────────────────────────────────────────────────────
     offeringsSection.addEventListener('click', handleOfferingsSectionClick);
     waitForOverlayContainer();
 }
 
-// =============================================================================
-// Entry points
-// =============================================================================
 function bootstrap() {
-    console.log('Offerings component: initialising...');
     offeringsInit();
-    console.log('Offerings component: initialisation complete.');
 }
 
 if (document.readyState === 'loading') {
@@ -215,8 +159,6 @@ if (document.readyState === 'loading') {
     bootstrap();
 }
 
-// Adobe Target fires this when it finishes injecting activity content
 document.addEventListener('at-content-rendering-succeeded', function () {
-    console.log('Offerings component: at-content-rendering-succeeded, re-initialising...');
     offeringsInit();
 });
