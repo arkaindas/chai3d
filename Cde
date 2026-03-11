@@ -7,11 +7,8 @@ function offeringsInit() {
     if (!offeringsSection) return;
 
     // ─── Teardown any previous run before re-initialising ───────────────────────
-    // Adobe Target re-renders the component in-place without a full page reload.
-    // The old guard (dataset flag + return) caused offeringsInit() to bail out on
-    // every subsequent render, so labels never showed after the first load.
-    // Instead, we store a cleanup fn on the element and call it before each init,
-    // so every render — including Target re-renders — gets a fully clean slate.
+    // Covers Adobe Target in-place re-renders where the DOM node survives across
+    // renders. Cleans up stale observers, timers and listeners before each init.
     if (typeof offeringsSection._offeringsCleanup === 'function') {
         offeringsSection._offeringsCleanup();
     }
@@ -20,12 +17,12 @@ function offeringsInit() {
     let xfObserver = null;
     let xfClickListenerAttached = false;
     let settleTimer = null;
+    let rafHandle = null;
 
-    // ─── Cleanup fn: disconnect observers, clear timers, remove click listener ───
-    // Called at the top of the next offeringsInit() run to avoid stale state.
     offeringsSection._offeringsCleanup = function () {
-        if (xfObserver) { xfObserver.disconnect(); xfObserver = null; }
-        if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
+        if (xfObserver)   { xfObserver.disconnect(); xfObserver = null; }
+        if (settleTimer)  { clearTimeout(settleTimer); settleTimer = null; }
+        if (rafHandle)    { cancelAnimationFrame(rafHandle); rafHandle = null; }
         offeringsSection.removeEventListener('click', handleOfferingsSectionClick);
         offeringsSection._offeringsCleanup = null;
         xfClickListenerAttached = false;
@@ -45,7 +42,7 @@ function offeringsInit() {
     }
 
     // =========================================================================
-    // setXFMainContainer — untouched, except click listener attached only once
+    // setXFMainContainer — untouched, click listener attached only once
     // =========================================================================
     function setXFMainContainer(selectedHotspot, parentBoundingRect) {
         let adjustedBottom = calculateAdjustedBottom(selectedHotspot, parentBoundingRect);
@@ -141,7 +138,44 @@ function offeringsInit() {
     }
 
     // =========================================================================
-    // waitForHotspotButton — event-driven replacement for setInterval polling
+    // renderLabelsWhenPainted
+    //
+    // Problem: getBoundingClientRect() returns 0 for all values when called before
+    // the browser has painted the image layout — this happens intermittently on
+    // full page reloads (especially with query params) because image load time
+    // varies. Labels then get positioned at left:0, bottom:0 and appear invisible.
+    //
+    // Fix: after the 500ms DOM-settle, use requestAnimationFrame to confirm the
+    // hotspot elements have non-zero dimensions before calling setInactiveHotspotLabels.
+    // If dimensions are still zero (image not yet painted), retry on the next frame.
+    // Cap at 60 retries (~1 second) to avoid infinite loops.
+    // =========================================================================
+    function renderLabelsWhenPainted() {
+        let attempts = 0;
+        let maxAttempts = 60;
+
+        function tryRender() {
+            rafHandle = null;
+            let firstButton = offeringsSection.querySelector('[tabindex="-1"][role="button"]');
+
+            // If button has non-zero dimensions the browser has painted — safe to measure
+            if (firstButton && firstButton.getBoundingClientRect().width > 0) {
+                setInactiveHotspotLabels();
+                return;
+            }
+
+            // Layout not ready yet — retry next frame up to maxAttempts
+            attempts++;
+            if (attempts < maxAttempts) {
+                rafHandle = requestAnimationFrame(tryRender);
+            }
+        }
+
+        rafHandle = requestAnimationFrame(tryRender);
+    }
+
+    // =========================================================================
+    // waitForHotspotButton — event-driven, handles both early and late injection
     // =========================================================================
     function waitForHotspotButton() {
         let existingButton = offeringsSection.querySelector('div[tabindex="0"][role="button"]');
@@ -164,8 +198,7 @@ function offeringsInit() {
     function onHotspotButtonFound() {
         handleOfferingsComponentUpdate();
 
-        // Reset the AEM-default active hotspot immediately, but defer label rendering
-        // until layout is stable (getBoundingClientRect returns correct values).
+        // Immediately reset AEM's default active hotspot (tabindex="0" -> "-1")
         let activeHotspot = offeringsSection?.querySelector('div[tabindex="0"][role="button"]');
         let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
         if (activeHotspot && xfMainContainer) {
@@ -176,15 +209,16 @@ function offeringsInit() {
             activeHotspot.setAttribute('userclicked', 'false');
         }
 
-        // Track the timer so cleanup can cancel it if Target re-renders mid-flight
+        // Wait for DOM to settle, then hand off to rAF loop which waits for
+        // the browser to paint before measuring positions for label placement.
         settleTimer = setTimeout(function () {
             settleTimer = null;
             // Reset any straggler AEM may have re-activated during the settle window
             offeringsSection
                 .querySelector('div[tabindex="0"][role="button"]')
                 ?.setAttribute('tabindex', '-1');
-            // Layout is now stable — render labels
-            setInactiveHotspotLabels();
+            // Delegate to rAF loop — only renders once layout is fully painted
+            renderLabelsWhenPainted();
         }, 500);
     }
 
@@ -194,10 +228,22 @@ function offeringsInit() {
 }
 
 // =============================================================================
-// Entry point — single DOMContentLoaded, no nesting
+// Entry point
+//
+// FIX: Guard against the script running after DOMContentLoaded has already fired
+// (common when Adobe Target loads scripts asynchronously). If readyState is
+// already 'interactive' or 'complete', call offeringsInit() directly instead of
+// waiting for an event that will never come.
 // =============================================================================
-document.addEventListener('DOMContentLoaded', function () {
-    console.log('Offerings component: DOMContentLoaded fired, initialising...');
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+        console.log('Offerings component: DOMContentLoaded fired, initialising...');
+        offeringsInit();
+        console.log('Offerings component: initialisation complete.');
+    });
+} else {
+    // DOMContentLoaded already fired — run immediately
+    console.log('Offerings component: DOM already ready, initialising immediately...');
     offeringsInit();
     console.log('Offerings component: initialisation complete.');
-});
+}
