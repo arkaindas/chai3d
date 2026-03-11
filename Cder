@@ -18,11 +18,13 @@ function offeringsInit() {
     let xfClickListenerAttached = false;
     let settleTimer = null;
     let rafHandle = null;
+    let initPollInterval = null;   // reference so cleanup can clear the fallback poller
 
     offeringsSection._offeringsCleanup = function () {
-        if (xfObserver)   { xfObserver.disconnect(); xfObserver = null; }
-        if (settleTimer)  { clearTimeout(settleTimer); settleTimer = null; }
-        if (rafHandle)    { cancelAnimationFrame(rafHandle); rafHandle = null; }
+        if (xfObserver)      { xfObserver.disconnect(); xfObserver = null; }
+        if (settleTimer)     { clearTimeout(settleTimer); settleTimer = null; }
+        if (rafHandle)       { cancelAnimationFrame(rafHandle); rafHandle = null; }
+        if (initPollInterval){ clearInterval(initPollInterval); initPollInterval = null; }
         offeringsSection.removeEventListener('click', handleOfferingsSectionClick);
         offeringsSection._offeringsCleanup = null;
         xfClickListenerAttached = false;
@@ -178,24 +180,56 @@ function offeringsInit() {
     }
 
     // =========================================================================
-    // waitForHotspotButton — event-driven, handles both early and late injection
+    // waitForHotspotButton
+    //
+    // The race condition: there is a narrow window between the querySelector check
+    // and MutationObserver.observe() starting where AEM can inject buttons and both
+    // miss them. Console showed only 2 log lines with nothing after — buttons were
+    // in DOM but neither check caught them, so onHotspotButtonFound never ran.
+    //
+    // Triple-safety: querySelector + MutationObserver + setInterval fallback.
+    // All three share a `found` flag so onHotspotButtonFound runs exactly once.
     // =========================================================================
     function waitForHotspotButton() {
-        let existingButton = offeringsSection.querySelector('div[tabindex="0"][role="button"]');
-        if (existingButton) {
+        let found = false;
+        let watcher = null;
+        let pollInterval = null;
+
+        function trigger() {
+            if (found) return;
+            found = true;
+            if (watcher) { watcher.disconnect(); watcher = null; }
+            if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
             onHotspotButtonFound();
+        }
+
+        // 1. Check immediately — button may already be in DOM
+        if (offeringsSection.querySelector('div[tabindex="0"][role="button"]')) {
+            trigger();
             return;
         }
 
-        let watcher = new MutationObserver(function (_, obs) {
-            let button = offeringsSection.querySelector('div[tabindex="0"][role="button"]');
-            if (button) {
-                obs.disconnect();
-                onHotspotButtonFound();
+        // 2. MutationObserver — catches buttons injected after we start watching
+        watcher = new MutationObserver(function () {
+            if (offeringsSection.querySelector('div[tabindex="0"][role="button"]')) {
+                trigger();
             }
         });
-
         watcher.observe(offeringsSection, { childList: true, subtree: true });
+
+        // 3. setInterval fallback — catches the race window between steps 1 and 2
+        //    where button is injected after querySelector but before observer.observe()
+        let elapsed = 0;
+        pollInterval = setInterval(function () {
+            elapsed += 100;
+            if (offeringsSection.querySelector('div[tabindex="0"][role="button"]')) {
+                trigger();
+            } else if (elapsed >= 10000) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+                if (watcher) { watcher.disconnect(); watcher = null; }
+            }
+        }, 100);
     }
 
     // =========================================================================
