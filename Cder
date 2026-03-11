@@ -190,10 +190,29 @@ function offeringsInit() {
     // Triple-safety: querySelector + MutationObserver + setInterval fallback.
     // All three share a `found` flag so onHotspotButtonFound runs exactly once.
     // =========================================================================
+    // =========================================================================
+    // waitForHotspotButton
+    //
+    // Root cause of intermittent failure: on some loads AEM renders ALL hotspot
+    // buttons with tabindex="-1" from the start (no button ever gets tabindex="0"),
+    // so the old selector 'div[tabindex="0"][role="button"]' never matches anything
+    // and onHotspotButtonFound() never runs — explaining the console showing only
+    // the 2 init lines with nothing after, on both working and failing loads.
+    //
+    // Fix: detect ANY div[role="button"] injection, not just tabindex="0" ones.
+    // Once buttons exist in the DOM, onHotspotButtonFound() runs regardless of
+    // what tabindex value AEM chose to use on that particular render.
+    // Triple-safety (querySelector + MutationObserver + setInterval) is kept
+    // to handle the narrow race window between the first two checks.
+    // =========================================================================
     function waitForHotspotButton() {
         let found = false;
         let watcher = null;
         let pollInterval = null;
+
+        function hasButtons() {
+            return !!offeringsSection.querySelector('div[role="button"]');
+        }
 
         function trigger() {
             if (found) return;
@@ -203,30 +222,26 @@ function offeringsInit() {
             onHotspotButtonFound();
         }
 
-        // 1. Check immediately — button may already be in DOM
-        if (offeringsSection.querySelector('div[tabindex="0"][role="button"]')) {
+        // 1. Check immediately — buttons may already be in DOM
+        if (hasButtons()) {
             trigger();
             return;
         }
 
         // 2. MutationObserver — catches buttons injected after we start watching
         watcher = new MutationObserver(function () {
-            if (offeringsSection.querySelector('div[tabindex="0"][role="button"]')) {
-                trigger();
-            }
+            if (hasButtons()) { trigger(); }
         });
         watcher.observe(offeringsSection, { childList: true, subtree: true });
 
         // 3. setInterval fallback — catches the race window between steps 1 and 2
-        //    where button is injected after querySelector but before observer.observe()
         let elapsed = 0;
         pollInterval = setInterval(function () {
             elapsed += 100;
-            if (offeringsSection.querySelector('div[tabindex="0"][role="button"]')) {
+            if (hasButtons()) {
                 trigger();
             } else if (elapsed >= 10000) {
-                clearInterval(pollInterval);
-                pollInterval = null;
+                clearInterval(pollInterval); pollInterval = null;
                 if (watcher) { watcher.disconnect(); watcher = null; }
             }
         }, 100);
@@ -246,15 +261,15 @@ function offeringsInit() {
     // which controls the green highlight styling independently of tabindex.
     // =========================================================================
     function resetAllActiveHotspots() {
+        // Reset ALL role=button divs regardless of current tabindex.
+        // On some loads AEM renders all buttons as tabindex="-1" from the start,
+        // so querying only tabindex="0" would find nothing and skip the reset.
         let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
         if (xfMainContainer) { xfMainContainer.style.display = 'none'; }
-
-        // Reset ALL active hotspot buttons — not just the first one
-        let activeHotspots = offeringsSection?.querySelectorAll('div[tabindex="0"][role="button"]');
-        activeHotspots?.forEach(function (hotspot) {
+        let allHotspots = offeringsSection?.querySelectorAll('div[role="button"]');
+        allHotspots?.forEach(function (hotspot) {
             hotspot.setAttribute('tabindex', '-1');
             hotspot.setAttribute('userclicked', 'false');
-            // Also reset AEM's state attribute that drives the green active styling
             if (hotspot.getAttribute('state') === 'active') {
                 hotspot.setAttribute('state', '');
             }
@@ -265,9 +280,9 @@ function offeringsInit() {
         handleOfferingsComponentUpdate();
         resetAllActiveHotspots();
 
-        // AEM re-activates the default hotspot (Wind Energy) after our reset by writing
-        // tabindex="0" back onto it. Watch for any tabindex attribute change on any
-        // hotspot and immediately counter it. Disconnect after 2s — AEM is settled by then.
+        // Guard: AEM may re-write tabindex="0" or state="active" after our reset.
+        // Watch for those specific attribute changes and counter them immediately.
+        // Observes both tabindex and state attributes. Disconnects after 2s.
         let antiActivationObserver = new MutationObserver(function () {
             let reactivated = offeringsSection.querySelectorAll('div[tabindex="0"][role="button"]');
             reactivated.forEach(function (h) {
@@ -276,7 +291,7 @@ function offeringsInit() {
                 if (h.getAttribute('state') === 'active') { h.setAttribute('state', ''); }
             });
         });
-        antiActivationObserver.observe(offeringsSection, { subtree: true, attributeFilter: ['tabindex'] });
+        antiActivationObserver.observe(offeringsSection, { subtree: true, attributeFilter: ['tabindex', 'state'] });
         setTimeout(function () { antiActivationObserver.disconnect(); }, 2000);
 
         settleTimer = setTimeout(function () {
