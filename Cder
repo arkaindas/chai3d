@@ -178,10 +178,19 @@ function offeringsInit() {
         let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
         if (xfMainContainer) { xfMainContainer.style.display = 'none'; }
 
-        // Defer label rendering to let the s7 library finish positioning all hotspots.
-        // 500ms matches the original code's settle timing which worked on normal loads.
+        // Defer to let s7 library finish positioning hotspots, then reset the
+        // one button AEM marks as tabindex="0" (active) and render all labels.
         settleTimer = setTimeout(function () {
             settleTimer = null;
+
+            // Reset whichever button AEM made active — do it inside the timeout
+            // so we catch it after s7 has finished its own post-init attribute writes
+            let activeBtn = offeringsSection.querySelector('div[tabindex="0"][role="button"]');
+            if (activeBtn) {
+                activeBtn.setAttribute('tabindex', '-1');
+                activeBtn.setAttribute('userclicked', 'false');
+            }
+
             setInactiveHotspotLabels();
         }, 500);
     }
