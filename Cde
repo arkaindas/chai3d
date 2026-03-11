@@ -3,17 +3,17 @@
 /* eslint-disable no-empty-function, @typescript-eslint/no-empty-function */
 
 function offeringsInit() {
+    console.log('[Offerings] offeringsInit() called. readyState:', document.readyState);
+
     let offeringsSection = document.querySelector('.offerings-main-container');
+    console.log('[Offerings] offeringsSection found:', !!offeringsSection);
     if (!offeringsSection) return;
 
-    // ─── Teardown any previous run before re-initialising ───────────────────────
-    // Covers Adobe Target in-place re-renders where the DOM node survives across
-    // renders. Cleans up stale observers, timers and listeners before each init.
     if (typeof offeringsSection._offeringsCleanup === 'function') {
+        console.log('[Offerings] Running cleanup from previous init');
         offeringsSection._offeringsCleanup();
     }
 
-    // ─── State for this init run ─────────────────────────────────────────────────
     let xfObserver = null;
     let xfClickListenerAttached = false;
     let settleTimer = null;
@@ -28,9 +28,6 @@ function offeringsInit() {
         xfClickListenerAttached = false;
     };
 
-    // =========================================================================
-    // calculateAdjustedBottom — untouched
-    // =========================================================================
     function calculateAdjustedBottom(selectedHotspot, parentBoundingRect) {
         if (parentBoundingRect) {
             let boundingRect = selectedHotspot?.getBoundingClientRect();
@@ -41,9 +38,6 @@ function offeringsInit() {
         }
     }
 
-    // =========================================================================
-    // setXFMainContainer — untouched, click listener attached only once
-    // =========================================================================
     function setXFMainContainer(selectedHotspot, parentBoundingRect) {
         let adjustedBottom = calculateAdjustedBottom(selectedHotspot, parentBoundingRect);
         let position = selectedHotspot?.getBoundingClientRect();
@@ -57,36 +51,49 @@ function offeringsInit() {
         xfMainContainer?.classList.toggle('left', xfMainContainerRight <= parentBoundingRect.right);
         xfMainContainer?.classList.toggle('extremen-right', xfMainContainerRight > parentBoundingRect.right);
         xfMainContainer.style.bottom = (adjustedBottom + 62) + 'px';
-
         if (!xfClickListenerAttached) {
-            xfMainContainer.addEventListener('click', function (event) {
-                event?.stopPropagation();
-            });
+            xfMainContainer.addEventListener('click', function (event) { event?.stopPropagation(); });
             xfClickListenerAttached = true;
         }
     }
 
-    // =========================================================================
-    // setInactiveHotspotLabels — untouched logic
-    // =========================================================================
     function setInactiveHotspotLabels() {
         let elements = offeringsSection?.querySelectorAll('[tabindex="-1"][role="button"]');
-        if (!elements?.length) return;
-        let parentContainer = elements[0]?.parentNode;
+        console.log('[Offerings] setInactiveHotspotLabels() — tabindex="-1" buttons found:', elements?.length);
 
+        if (!elements?.length) {
+            // Log ALL role=button divs to see their current tabindex state
+            let allButtons = offeringsSection?.querySelectorAll('div[role="button"]');
+            console.log('[Offerings] ALL role=button divs:', allButtons?.length, 
+                Array.from(allButtons || []).map(b => ({
+                    tabindex: b.getAttribute('tabindex'),
+                    state: b.getAttribute('state'),
+                    ariaLabel: b.getAttribute('aria-label'),
+                    rect: b.getBoundingClientRect()
+                }))
+            );
+            return;
+        }
+
+        let parentContainer = elements[0]?.parentNode;
         parentContainer?.querySelectorAll('.inactive-hotspot-label')?.forEach(existingSpan => {
             existingSpan?.parentNode?.removeChild(existingSpan);
         });
 
         let parentContainerLeft = parentContainer?.getBoundingClientRect()?.left || 0;
+        console.log('[Offerings] parentContainerLeft:', parentContainerLeft);
 
         elements?.forEach(element => {
             let ariaLabel = element?.getAttribute('aria-label');
             let labelText = ariaLabel?.split('Quick View ')[1];
-            if (!labelText) return;
+            if (!labelText) {
+                console.warn('[Offerings] No labelText for element, ariaLabel was:', ariaLabel);
+                return;
+            }
             let headding = document.createElement('h3');
             let rect = element.getBoundingClientRect();
             let adjustedBottom = calculateAdjustedBottom(element, element?.offsetParent?.getBoundingClientRect());
+            console.log('[Offerings] Label:', labelText, '| rect:', rect, '| adjustedBottom:', adjustedBottom);
             headding.textContent = labelText;
             headding.style.position = 'absolute';
             headding.style.bottom = `${adjustedBottom + 8}px`;
@@ -96,15 +103,11 @@ function offeringsInit() {
         });
     }
 
-    // =========================================================================
-    // handleOfferingsComponentUpdate — single observer, disconnects before reuse
-    // =========================================================================
     function handleOfferingsComponentUpdate() {
         let targetNode = document.querySelector('.offerings-main-container #tatapower-xf');
+        console.log('[Offerings] handleOfferingsComponentUpdate() — targetNode found:', !!targetNode);
         if (!targetNode) return;
-
         if (xfObserver) { xfObserver.disconnect(); xfObserver = null; }
-
         xfObserver = new MutationObserver(function (mutationsList) {
             for (let mutation of mutationsList) {
                 if (mutation.type === 'childList') {
@@ -117,13 +120,9 @@ function offeringsInit() {
                 }
             }
         });
-
         xfObserver.observe(targetNode, { childList: true, subtree: true });
     }
 
-    // =========================================================================
-    // handleOfferingsSectionClick — untouched logic
-    // =========================================================================
     function handleOfferingsSectionClick() {
         let selectedHotspot = offeringsSection?.querySelector('div[tabindex="0"][role="button"]');
         let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
@@ -137,48 +136,55 @@ function offeringsInit() {
         setInactiveHotspotLabels();
     }
 
-    // =========================================================================
-    // renderLabelsWhenPainted
-    //
-    // Problem: getBoundingClientRect() returns 0 for all values when called before
-    // the browser has painted the image layout — this happens intermittently on
-    // full page reloads (especially with query params) because image load time
-    // varies. Labels then get positioned at left:0, bottom:0 and appear invisible.
-    //
-    // Fix: after the 500ms DOM-settle, use requestAnimationFrame to confirm the
-    // hotspot elements have non-zero dimensions before calling setInactiveHotspotLabels.
-    // If dimensions are still zero (image not yet painted), retry on the next frame.
-    // Cap at 60 retries (~1 second) to avoid infinite loops.
-    // =========================================================================
+    function resetAllActiveHotspots() {
+        let activeHotspots = offeringsSection?.querySelectorAll('div[tabindex="0"][role="button"]');
+        console.log('[Offerings] resetAllActiveHotspots() — active buttons found:', activeHotspots?.length,
+            Array.from(activeHotspots || []).map(b => b.getAttribute('aria-label'))
+        );
+        let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
+        if (xfMainContainer) { xfMainContainer.style.display = 'none'; }
+        activeHotspots?.forEach(function (hotspot) {
+            hotspot.setAttribute('tabindex', '-1');
+            hotspot.setAttribute('userclicked', 'false');
+            if (hotspot.getAttribute('state') === 'active') {
+                hotspot.setAttribute('state', '');
+            }
+        });
+    }
+
     function renderLabelsWhenPainted() {
         let attempts = 0;
         let maxAttempts = 60;
+        console.log('[Offerings] renderLabelsWhenPainted() started');
 
         function tryRender() {
             rafHandle = null;
             let firstButton = offeringsSection.querySelector('[tabindex="-1"][role="button"]');
+            console.log('[Offerings] tryRender attempt', attempts, '— firstButton:', !!firstButton,
+                firstButton ? 'width:' + firstButton.getBoundingClientRect().width : ''
+            );
 
-            // If button has non-zero dimensions the browser has painted — safe to measure
             if (firstButton && firstButton.getBoundingClientRect().width > 0) {
+                console.log('[Offerings] Layout painted — calling setInactiveHotspotLabels');
                 setInactiveHotspotLabels();
                 return;
             }
 
-            // Layout not ready yet — retry next frame up to maxAttempts
             attempts++;
             if (attempts < maxAttempts) {
                 rafHandle = requestAnimationFrame(tryRender);
+            } else {
+                console.warn('[Offerings] renderLabelsWhenPainted gave up after', maxAttempts, 'attempts');
             }
         }
 
         rafHandle = requestAnimationFrame(tryRender);
     }
 
-    // =========================================================================
-    // waitForHotspotButton — event-driven, handles both early and late injection
-    // =========================================================================
     function waitForHotspotButton() {
         let existingButton = offeringsSection.querySelector('div[tabindex="0"][role="button"]');
+        console.log('[Offerings] waitForHotspotButton() — button already in DOM:', !!existingButton);
+
         if (existingButton) {
             onHotspotButtonFound();
             return;
@@ -187,82 +193,39 @@ function offeringsInit() {
         let watcher = new MutationObserver(function (_, obs) {
             let button = offeringsSection.querySelector('div[tabindex="0"][role="button"]');
             if (button) {
+                console.log('[Offerings] MutationObserver detected hotspot button');
                 obs.disconnect();
                 onHotspotButtonFound();
             }
         });
 
         watcher.observe(offeringsSection, { childList: true, subtree: true });
-    }
-
-    // =========================================================================
-    // resetAllActiveHotspots
-    //
-    // AEM Interactive Media can mark ANY hotspot (not always the first) as
-    // tabindex="0" by default — in this case the 3rd one (Wind Energy) is active.
-    // querySelector() only finds the FIRST match in DOM order, so if AEM activates
-    // the 3rd button, a single querySelector reset followed by AEM re-activating it
-    // leaves it stuck as active.
-    //
-    // Fix: querySelectorAll resets EVERY tabindex="0" button in one pass.
-    // Also resets AEM's own "state" attribute (set to "active" on the marker div)
-    // which controls the green highlight styling independently of tabindex.
-    // =========================================================================
-    function resetAllActiveHotspots() {
-        let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
-        if (xfMainContainer) { xfMainContainer.style.display = 'none'; }
-
-        // Reset ALL active hotspot buttons — not just the first one
-        let activeHotspots = offeringsSection?.querySelectorAll('div[tabindex="0"][role="button"]');
-        activeHotspots?.forEach(function (hotspot) {
-            hotspot.setAttribute('tabindex', '-1');
-            hotspot.setAttribute('userclicked', 'false');
-            // Also reset AEM's state attribute that drives the green active styling
-            if (hotspot.getAttribute('state') === 'active') {
-                hotspot.setAttribute('state', '');
-            }
-        });
+        console.log('[Offerings] Watching offeringsSection for hotspot button injection...');
     }
 
     function onHotspotButtonFound() {
+        console.log('[Offerings] onHotspotButtonFound()');
         handleOfferingsComponentUpdate();
-
-        // Immediately reset all AEM-default active hotspots
         resetAllActiveHotspots();
 
-        // Wait for DOM to settle, then hand off to rAF loop which waits for
-        // the browser to paint before measuring positions for label placement.
         settleTimer = setTimeout(function () {
             settleTimer = null;
-            // Reset again — AEM sometimes re-activates a hotspot after our first reset
+            console.log('[Offerings] 500ms settle done — running second resetAllActiveHotspots');
             resetAllActiveHotspots();
-            // Delegate to rAF loop — only renders once layout is fully painted
             renderLabelsWhenPainted();
         }, 500);
     }
 
-    // ─── Bootstrap ──────────────────────────────────────────────────────────────
     offeringsSection.addEventListener('click', handleOfferingsSectionClick);
     waitForHotspotButton();
 }
 
-// =============================================================================
-// Entry point
-//
-// FIX: Guard against the script running after DOMContentLoaded has already fired
-// (common when Adobe Target loads scripts asynchronously). If readyState is
-// already 'interactive' or 'complete', call offeringsInit() directly instead of
-// waiting for an event that will never come.
-// =============================================================================
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () {
-        console.log('Offerings component: DOMContentLoaded fired, initialising...');
+        console.log('[Offerings] DOMContentLoaded fired');
         offeringsInit();
-        console.log('Offerings component: initialisation complete.');
     });
 } else {
-    // DOMContentLoaded already fired — run immediately
-    console.log('Offerings component: DOM already ready, initialising immediately...');
+    console.log('[Offerings] DOM already ready (readyState:', document.readyState + ')');
     offeringsInit();
-    console.log('Offerings component: initialisation complete.');
 }
