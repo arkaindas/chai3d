@@ -1,20 +1,36 @@
-// Paste this entire block into console and press Enter
-(function() {
-    let s = document.querySelector('.offerings-main-container');
-    console.log('offeringsSection exists:', !!s);
-    console.log('_offeringsCleanup exists:', typeof s?._offeringsCleanup);
+} else if(closestImpactStories) {
+    const closestGridColumn = target.closest('.aem-GridColumn');
     
-    let allButtons = s?.querySelectorAll('div[role="button"]');
-    console.log('Total role=button divs:', allButtons?.length);
-    allButtons?.forEach(function(b, i) {
-        console.log('Button', i, '| tabindex:', b.getAttribute('tabindex'), '| offsetWidth:', b.offsetWidth, '| offsetLeft:', b.offsetLeft, '| aria-label:', b.getAttribute('aria-label'));
-    });
+    const pushSectionData = (sectionText) => {
+        dataLayer.push({
+            event: 'hotspot_click1',
+            client_id: clientId,
+            title_name: titleName,
+            section_name: sectionText
+        });
+    };
+
+    const sectionTextEl = closestGridColumn?.querySelector('.cmp-text');
     
-    let labels = s?.querySelectorAll('.inactive-hotspot-label');
-    console.log('Labels in DOM:', labels?.length);
-    
-    let img = s?.querySelector('img');
-    console.log('Image complete:', img?.complete, '| naturalWidth:', img?.naturalWidth, '| src:', img?.src?.split('/').pop());
-    
-    console.log('pollInterval running:', !!s?._pollInterval);
-})();
+    if (sectionTextEl?.textContent?.trim()) {
+        pushSectionData(sectionTextEl.textContent.trim());
+    } else {
+        const observer = new MutationObserver((mutations, obs) => {
+            const el = closestGridColumn?.querySelector('.cmp-text');
+            const text = el?.textContent?.trim();
+            if (text) {
+                pushSectionData(text);
+                obs.disconnect();
+            }
+        });
+        observer.observe(closestGridColumn, { 
+            childList: true, 
+            subtree: true 
+        });
+        setTimeout(() => {
+            observer.disconnect();
+            const fallback = closestGridColumn?.querySelector('.cmp-text')?.textContent?.trim() || '';
+            pushSectionData(fallback);
+        }, 3000);
+    }
+}
