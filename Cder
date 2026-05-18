@@ -1,164 +1,377 @@
-/* eslint-disable max-len */
-/* eslint-disable func-style */
-/* eslint-disable no-empty-function, @typescript-eslint/no-empty-function */
+#!/usr/bin/env node
 
-function offeringsInit() {
-    let offeringsSection = document.querySelector('.offerings-main-container');
-    if (!offeringsSection) return;
+/**
+ * AEM EDS Block Scaffolder
+ * Usage: node scaffold-block.js <block-name>
+ *   or:  node scaffold-block.js (interactive mode)
+ *
+ * Generates:
+ *   blocks/<name>/<name>.js
+ *   blocks/<name>/<name>.css
+ *   Updates component-models.json
+ *   Updates component-definitions.json
+ *   Updates component-filters.json
+ */
 
-    if (typeof offeringsSection._offeringsCleanup === 'function') {
-        offeringsSection._offeringsCleanup();
-    }
+const fs = require('fs');
+const path = require('path');
+const readline = require('readline');
 
-    let xfObserver = null;
-    let xfClickListenerAttached = false;
-    let settleTimer = null;
-    let rafHandle = null;
-    let pollInterval = null;
+// ─── ANSI colours ────────────────────────────────────────────────────────────
+const c = {
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  green: '\x1b[32m',
+  cyan: '\x1b[36m',
+  yellow: '\x1b[33m',
+  red: '\x1b[31m',
+  dim: '\x1b[2m',
+};
 
-    offeringsSection._offeringsCleanup = function () {
-        if (xfObserver)   { xfObserver.disconnect(); xfObserver = null; }
-        if (settleTimer)  { clearTimeout(settleTimer); settleTimer = null; }
-        if (rafHandle)    { cancelAnimationFrame(rafHandle); rafHandle = null; }
-        if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-        offeringsSection.removeEventListener('click', handleOfferingsSectionClick);
-        offeringsSection._offeringsCleanup = null;
-        xfClickListenerAttached = false;
+const log = {
+  info: (msg) => console.log(`${c.cyan}ℹ${c.reset}  ${msg}`),
+  success: (msg) => console.log(`${c.green}✔${c.reset}  ${msg}`),
+  warn: (msg) => console.log(`${c.yellow}⚠${c.reset}  ${msg}`),
+  error: (msg) => console.log(`${c.red}✖${c.reset}  ${msg}`),
+  title: (msg) => console.log(`\n${c.bold}${c.cyan}${msg}${c.reset}\n`),
+  divider: () => console.log(`${c.dim}${'─'.repeat(50)}${c.reset}`),
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const toPascalCase = (str) =>
+  str.replace(/(^\w|-\w)/g, (m) => m.replace('-', '').toUpperCase());
+
+const toTitleCase = (str) =>
+  str.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+const prompt = (rl, question) =>
+  new Promise((resolve) => rl.question(question, resolve));
+
+const readJSON = (filePath) => {
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+};
+
+const writeJSON = (filePath, data) => {
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', 'utf8');
+};
+
+// ─── Field types supported by Universal Editor ────────────────────────────────
+const FIELD_TYPES = {
+  text: 'Single-line text',
+  richtext: 'Rich text (HTML)',
+  media: 'Image / Media picker',
+  checkbox: 'Boolean toggle',
+  select: 'Dropdown select',
+  multiselect: 'Multi-select',
+  'aem-tag': 'AEM Tag picker',
+  'aem-content': 'AEM Content reference',
+  url: 'URL / Link',
+  number: 'Number',
+  date: 'Date picker',
+};
+
+// ─── Template generators ───────────────────────────────────────────────────────
+
+function genBlockJS(blockName, fields) {
+  const title = toTitleCase(blockName);
+  const hasMedia = fields.some((f) => f.type === 'media');
+
+  const mediaImport = hasMedia
+    ? `import { createOptimizedPicture } from '../../scripts/aem.js';\n\n`
+    : '';
+
+  const mediaHint = hasMedia
+    ? `\n  // Optimise any images inside the block\n  block.querySelectorAll('img').forEach((img) => {\n    const optimized = createOptimizedPicture(img.src, img.alt, false, [{ width: '750' }]);\n    img.closest('picture')?.replaceWith(optimized);\n  });\n`
+    : '';
+
+  return `${mediaImport}/**
+ * ${title} Block
+ *
+ * @param {HTMLElement} block - The block DOM element decorated by EDS
+ */
+export default function decorate(block) {
+  // The block element contains rows from the authored table.
+  // Each row becomes a <div> with child <div> cells.
+  const rows = [...block.children];
+
+  rows.forEach((row) => {
+    const cells = [...row.children];
+    // Example: give each cell a semantic role
+    cells.forEach((cell, i) => {
+      cell.dataset.cellIndex = i;
+    });
+  });
+${mediaHint}
+  // TODO: implement your block decoration logic here
+  block.classList.add('${blockName}--loaded');
+}
+`;
+}
+
+function genBlockCSS(blockName) {
+  const selector = `.${blockName}`;
+  return `/* ── ${toTitleCase(blockName)} Block ─────────────────────────────────── */
+
+${selector}-wrapper {
+  /* Outer wrapper injected by EDS */
+}
+
+${selector} {
+  /* Block root */
+  display: block;
+}
+
+${selector} > div {
+  /* Each authored row */
+}
+
+${selector} > div > div {
+  /* Each cell within a row */
+}
+
+/* ── Variants (add via block name in document, e.g. "Cards (dark)") ── */
+
+${selector}.${blockName}--dark {
+  /* Dark variant */
+}
+`;
+}
+
+function genFieldSchema(fields) {
+  return fields.map((f) => {
+    const base = {
+      component: f.type,
+      name: f.name,
+      label: f.label,
     };
 
-    function calculateAdjustedBottom(selectedHotspot, parentBoundingRect) {
-        if (parentBoundingRect) {
-            let boundingRect = selectedHotspot?.getBoundingClientRect();
-            if (boundingRect) {
-                let relativeBottom = Math.abs(boundingRect.bottom - parentBoundingRect.bottom) || 0;
-                return relativeBottom + (boundingRect?.height || 0);
-            }
-        }
+    if (f.type === 'select' || f.type === 'multiselect') {
+      base.options = [
+        { name: 'Option 1', value: 'option-1' },
+        { name: 'Option 2', value: 'option-2' },
+      ];
     }
 
-    function setXFMainContainer(selectedHotspot, parentBoundingRect) {
-        let adjustedBottom = calculateAdjustedBottom(selectedHotspot, parentBoundingRect);
-        let position = selectedHotspot?.getBoundingClientRect();
-        let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
-        if (!xfMainContainer) return;
-        let xfMainContainerWidth = xfMainContainer?.clientWidth;
-        let xfMainContainerRight = position?.left + xfMainContainerWidth;
-        xfMainContainer.style.left = (xfMainContainerRight > parentBoundingRect?.right) ?
-            ((position.left - (offeringsSection?.getBoundingClientRect()?.left || 0)) - xfMainContainerWidth + position.width) + 'px' :
-            (position.left - (offeringsSection?.getBoundingClientRect()?.left || 0)) + 'px';
-        xfMainContainer?.classList.toggle('left', xfMainContainerRight <= parentBoundingRect.right);
-        xfMainContainer?.classList.toggle('extremen-right', xfMainContainerRight > parentBoundingRect.right);
-        xfMainContainer.style.bottom = (adjustedBottom + 62) + 'px';
-        if (!xfClickListenerAttached) {
-            xfMainContainer.addEventListener('click', function (event) { event?.stopPropagation(); });
-            xfClickListenerAttached = true;
-        }
+    if (f.type === 'richtext') {
+      base.plugins = { toolbar: ['bold', 'italic', 'link', 'list'] };
     }
 
-    function setInactiveHotspotLabels() {
-        let elements = offeringsSection?.querySelectorAll('[tabindex="-1"][role="button"]');
-        if (!elements?.length) return;
-        let parentContainer = elements[0]?.parentNode;
-        parentContainer?.querySelectorAll('.inactive-hotspot-label')?.forEach(function (existingSpan) {
-            existingSpan?.parentNode?.removeChild(existingSpan);
-        });
-        elements?.forEach(function (element) {
-            let ariaLabel = element?.getAttribute('aria-label');
-            let labelText = ariaLabel?.split('Quick View ')[1];
-            if (!labelText) return;
-            let headding = document.createElement('h3');
-            let adjustedBottom = calculateAdjustedBottom(element, element?.offsetParent?.getBoundingClientRect());
-            headding.textContent = labelText;
-            headding.style.position = 'absolute';
-            headding.style.bottom = `${adjustedBottom + 8}px`;
-            headding.style.left = `${element.offsetLeft}px`;
-            headding.classList.add('inactive-hotspot-label');
-            parentContainer?.appendChild(headding);
-        });
-    }
-
-    function handleOfferingsComponentUpdate() {
-        let targetNode = document.querySelector('.offerings-main-container #tatapower-xf');
-        if (!targetNode) return;
-        if (xfObserver) { xfObserver.disconnect(); xfObserver = null; }
-        xfObserver = new MutationObserver(function (mutationsList) {
-            for (let mutation of mutationsList) {
-                if (mutation.type === 'childList') {
-                    let selectedHotspot = offeringsSection?.querySelector('div[tabindex="0"][role="button"]');
-                    let parentBoundingRect = selectedHotspot?.offsetParent?.getBoundingClientRect();
-                    if (selectedHotspot && parentBoundingRect) {
-                        setXFMainContainer(selectedHotspot, parentBoundingRect);
-                        setInactiveHotspotLabels();
-                    }
-                }
-            }
-        });
-        xfObserver.observe(targetNode, { childList: true, subtree: true });
-    }
-
-    function handleOfferingsSectionClick() {
-        let selectedHotspot = offeringsSection?.querySelector('div[tabindex="0"][role="button"]');
-        let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
-        if (selectedHotspot && xfMainContainer) {
-            selectedHotspot?.setAttribute('tabindex', '-1');
-            xfMainContainer.style.display = 'none';
-        } else if (selectedHotspot) {
-            selectedHotspot?.setAttribute('tabindex', '-1');
-            selectedHotspot?.setAttribute('userclicked', 'false');
-        }
-        setInactiveHotspotLabels();
-    }
-
-    function waitForOverlayContainer() {
-        let found = false;
-        let elapsed = 0;
-
-        pollInterval = setInterval(function () {
-            elapsed += 100;
-            let container = offeringsSection.querySelector('[id*="overlayContainer"]') ||
-                            offeringsSection.querySelector('[id*="imageMapEffect"]');
-            if (container) {
-                if (found) return;
-                found = true;
-                clearInterval(pollInterval);
-                pollInterval = null;
-                onOverlayContainerReady();
-            } else if (elapsed >= 15000) {
-                clearInterval(pollInterval);
-                pollInterval = null;
-            }
-        }, 100);
-    }
-
-    function onOverlayContainerReady() {
-        handleOfferingsComponentUpdate();
-        let xfMainContainer = offeringsSection?.querySelector('.xf-main-container');
-        if (xfMainContainer) { xfMainContainer.style.display = 'none'; }
-        settleTimer = setTimeout(function () {
-            settleTimer = null;
-            let activeBtn = offeringsSection.querySelector('div[tabindex="0"][role="button"]');
-            if (activeBtn) {
-                activeBtn.setAttribute('tabindex', '-1');
-                activeBtn.setAttribute('userclicked', 'false');
-            }
-            setInactiveHotspotLabels();
-        }, 500);
-    }
-
-    offeringsSection.addEventListener('click', handleOfferingsSectionClick);
-    waitForOverlayContainer();
+    return base;
+  });
 }
 
-function bootstrap() {
-    offeringsInit();
+// ─── JSON file updaters ────────────────────────────────────────────────────────
+
+function updateComponentModels(cwd, blockName, fields) {
+  const filePath = path.join(cwd, 'component-models.json');
+  let models = readJSON(filePath) || [];
+
+  const exists = models.find((m) => m.id === blockName);
+  if (exists) {
+    log.warn(`component-models.json already has an entry for "${blockName}" — skipping.`);
+    return;
+  }
+
+  models.push({
+    id: blockName,
+    fields: genFieldSchema(fields),
+  });
+
+  writeJSON(filePath, models);
+  log.success(`Updated  component-models.json`);
 }
 
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bootstrap);
-} else {
-    bootstrap();
+function updateComponentDefinitions(cwd, blockName) {
+  const filePath = path.join(cwd, 'component-definitions.json');
+  let defs = readJSON(filePath) || { groups: [] };
+
+  // Ensure groups array exists
+  if (!Array.isArray(defs.groups)) defs.groups = [];
+
+  // Find or create a "Blocks" group
+  let blocksGroup = defs.groups.find((g) => g.id === 'blocks');
+  if (!blocksGroup) {
+    blocksGroup = { title: 'Blocks', id: 'blocks', components: [] };
+    defs.groups.push(blocksGroup);
+  }
+
+  if (!Array.isArray(blocksGroup.components)) blocksGroup.components = [];
+
+  const exists = blocksGroup.components.find((c) => c.id === blockName);
+  if (exists) {
+    log.warn(`component-definitions.json already has an entry for "${blockName}" — skipping.`);
+    return;
+  }
+
+  blocksGroup.components.push({
+    title: toTitleCase(blockName),
+    id: blockName,
+    plugins: {
+      xwalk: {
+        page: {
+          resourceType: 'core/franklin/components/block/v1/block',
+          template: {
+            name: toTitleCase(blockName),
+            model: blockName,
+          },
+        },
+      },
+    },
+  });
+
+  writeJSON(filePath, defs);
+  log.success(`Updated  component-definitions.json`);
 }
 
-document.addEventListener('at-content-rendering-succeeded', function () {
-    offeringsInit();
+function updateComponentFilters(cwd, blockName) {
+  const filePath = path.join(cwd, 'component-filters.json');
+  let filters = readJSON(filePath) || [];
+
+  // Add to the default "section" filter
+  let sectionFilter = filters.find((f) => f.id === 'section');
+  if (!sectionFilter) {
+    sectionFilter = { id: 'section', components: [] };
+    filters.push(sectionFilter);
+  }
+
+  if (!Array.isArray(sectionFilter.components)) sectionFilter.components = [];
+
+  if (sectionFilter.components.includes(blockName)) {
+    log.warn(`component-filters.json already includes "${blockName}" — skipping.`);
+    return;
+  }
+
+  sectionFilter.components.push(blockName);
+  writeJSON(filePath, filters);
+  log.success(`Updated  component-filters.json`);
+}
+
+// ─── Interactive field builder ─────────────────────────────────────────────────
+
+async function collectFields(rl) {
+  const fields = [];
+  log.info('Define the fields for the Universal Editor model.');
+  log.info('Press Enter with an empty name when done.\n');
+
+  const typeList = Object.entries(FIELD_TYPES)
+    .map(([k, v], i) => `  ${c.dim}${String(i + 1).padStart(2)}.${c.reset} ${c.cyan}${k.padEnd(12)}${c.reset} ${c.dim}${v}${c.reset}`)
+    .join('\n');
+
+  while (true) {
+    const name = (await prompt(rl, `  Field name (camelCase, empty to finish): `)).trim();
+    if (!name) break;
+
+    const label = (await prompt(rl, `  Label for "${name}": `)).trim() || toTitleCase(name);
+
+    console.log(`\n  Field types:\n${typeList}\n`);
+    const typeInput = (await prompt(rl, `  Type (name or number, default: text): `)).trim();
+
+    let type = 'text';
+    if (typeInput) {
+      const byNumber = Object.keys(FIELD_TYPES)[parseInt(typeInput, 10) - 1];
+      type = byNumber || (FIELD_TYPES[typeInput] ? typeInput : 'text');
+    }
+
+    fields.push({ name, label, type });
+    log.success(`Added field: ${c.bold}${name}${c.reset} (${type})\n`);
+  }
+
+  // Always add at least one text field as a fallback
+  if (fields.length === 0) {
+    fields.push({ name: 'text', label: 'Text', type: 'text' });
+    log.warn('No fields defined — added a default "text" field.');
+  }
+
+  return fields;
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+async function main() {
+  log.title('AEM EDS Block Scaffolder');
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+  // Resolve working directory (where the script is run from)
+  const cwd = process.cwd();
+
+  // 1. Block name
+  let blockName = process.argv[2]?.trim().toLowerCase().replace(/\s+/g, '-');
+  if (!blockName) {
+    blockName = (await prompt(rl, `Block name (kebab-case, e.g. hero-banner): `))
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '-');
+  }
+
+  if (!blockName || !/^[a-z][a-z0-9-]*$/.test(blockName)) {
+    log.error('Invalid block name. Use lowercase letters, numbers, and hyphens only.');
+    rl.close();
+    process.exit(1);
+  }
+
+  log.divider();
+  log.info(`Scaffolding block: ${c.bold}${blockName}${c.reset}`);
+  log.info(`Working directory: ${c.dim}${cwd}${c.reset}`);
+  log.divider();
+
+  // 2. Collect fields for UE model
+  const fields = await collectFields(rl);
+  rl.close();
+
+  log.divider();
+
+  // 3. Create blocks/<name>/ directory
+  const blockDir = path.join(cwd, 'blocks', blockName);
+  if (!fs.existsSync(blockDir)) {
+    fs.mkdirSync(blockDir, { recursive: true });
+  }
+
+  // 4. Write block JS
+  const jsPath = path.join(blockDir, `${blockName}.js`);
+  if (fs.existsSync(jsPath)) {
+    log.warn(`blocks/${blockName}/${blockName}.js already exists — skipping.`);
+  } else {
+    fs.writeFileSync(jsPath, genBlockJS(blockName, fields), 'utf8');
+    log.success(`Created  blocks/${blockName}/${blockName}.js`);
+  }
+
+  // 5. Write block CSS
+  const cssPath = path.join(blockDir, `${blockName}.css`);
+  if (fs.existsSync(cssPath)) {
+    log.warn(`blocks/${blockName}/${blockName}.css already exists — skipping.`);
+  } else {
+    fs.writeFileSync(cssPath, genBlockCSS(blockName), 'utf8');
+    log.success(`Created  blocks/${blockName}/${blockName}.css`);
+  }
+
+  // 6. Update Universal Editor JSON files
+  updateComponentModels(cwd, blockName, fields);
+  updateComponentDefinitions(cwd, blockName);
+  updateComponentFilters(cwd, blockName);
+
+  // 7. Summary
+  log.divider();
+  console.log(`\n${c.bold}${c.green}✔ Block "${blockName}" scaffolded successfully!${c.reset}\n`);
+  console.log(`  ${c.dim}Files created / updated:${c.reset}`);
+  console.log(`    ${c.cyan}blocks/${blockName}/${blockName}.js${c.reset}`);
+  console.log(`    ${c.cyan}blocks/${blockName}/${blockName}.css${c.reset}`);
+  console.log(`    ${c.cyan}component-models.json${c.reset}       ${c.dim}(UE field definitions)${c.reset}`);
+  console.log(`    ${c.cyan}component-definitions.json${c.reset}  ${c.dim}(UE block registration)${c.reset}`);
+  console.log(`    ${c.cyan}component-filters.json${c.reset}      ${c.dim}(UE placement rules)${c.reset}`);
+  console.log(`\n  ${c.dim}Next steps:${c.reset}`);
+  console.log(`    1. Run ${c.bold}aem up${c.reset} and open http://localhost:3000`);
+  console.log(`    2. Author the block in your document or Universal Editor`);
+  console.log(`    3. Implement decoration logic in ${c.bold}${blockName}.js${c.reset}`);
+  console.log(`    4. Style it in ${c.bold}${blockName}.css${c.reset}\n`);
+}
+
+main().catch((err) => {
+  log.error(err.message);
+  process.exit(1);
 });
