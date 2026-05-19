@@ -66,37 +66,31 @@ const writeJSON = (filePath, data) =>
 
 // ─── Field types ──────────────────────────────────────────────────────────────
 const FIELD_TYPES = {
-  // Text inputs
   text:                      { label: 'Single-line text',                valueType: 'string'   },
   textarea:                  { label: 'Multi-line plain text',           valueType: 'string'   },
   richtext:                  { label: 'Rich text (HTML / WYSIWYG)',      valueType: 'string'   },
-  // Media & references
   reference:                 { label: 'Image / Media (DAM asset)',       valueType: 'string'   },
   'aem-content':             { label: 'AEM page / content / link',       valueType: 'string'   },
   'aem-content-fragment':    { label: 'Content Fragment picker',         valueType: 'string'   },
   'aem-experience-fragment': { label: 'Experience Fragment picker',      valueType: 'string'   },
-  // Selection & toggles
   boolean:                   { label: 'Boolean toggle (true / false)',   valueType: 'boolean'  },
   select:                    { label: 'Dropdown — single value',         valueType: 'string'   },
   multiselect:               { label: 'Dropdown — multiple values',      valueType: 'string[]' },
   'radio-group':             { label: 'Radio buttons — single value',    valueType: 'string'   },
   'checkbox-group':          { label: 'Checkboxes — multiple values',    valueType: 'string[]' },
-  // Specialised
   number:                    { label: 'Number input',                    valueType: 'number'   },
   'date-time':               { label: 'Date / time picker',              valueType: 'date'     },
   'aem-tag':                 { label: 'AEM Tag picker (cq:tags)',        valueType: 'string'   },
-  // Layout (no persisted value)
   container:                 { label: 'Grouped / repeating field set',   valueType: 'string'   },
   tab:                       { label: 'Tab — organises fields in panel', valueType: null       },
 };
 
-// Groups for display
 const FIELD_GROUPS = [
-  { title: 'Text inputs',          keys: ['text', 'textarea', 'richtext'] },
-  { title: 'Media & references',   keys: ['reference', 'aem-content', 'aem-content-fragment', 'aem-experience-fragment'] },
-  { title: 'Selection & toggles',  keys: ['boolean', 'select', 'multiselect', 'radio-group', 'checkbox-group'] },
-  { title: 'Specialised',          keys: ['number', 'date-time', 'aem-tag'] },
-  { title: 'Layout (no value)',    keys: ['container', 'tab'] },
+  { title: 'Text inputs',         keys: ['text', 'textarea', 'richtext'] },
+  { title: 'Media & references',  keys: ['reference', 'aem-content', 'aem-content-fragment', 'aem-experience-fragment'] },
+  { title: 'Selection & toggles', keys: ['boolean', 'select', 'multiselect', 'radio-group', 'checkbox-group'] },
+  { title: 'Specialised',         keys: ['number', 'date-time', 'aem-tag'] },
+  { title: 'Layout (no value)',   keys: ['container', 'tab'] },
 ];
 
 const ALL_FIELD_KEYS = Object.keys(FIELD_TYPES);
@@ -122,107 +116,111 @@ function printFieldTypes() {
 // ─── Field schema builder ─────────────────────────────────────────────────────
 function buildFieldSchema(fields) {
   const OPTION_TYPES = new Set(['select', 'multiselect', 'radio-group', 'checkbox-group']);
-
   return fields.map((f) => {
-    const base = {
-      component:  f.type,
-      name:       f.name,
-      label:      f.label,
-    };
-
-    // valueType — skip for layout-only types
-    if (f.type !== 'tab') {
-      base.valueType = FIELD_TYPES[f.type]?.valueType || 'string';
-    }
-
-    // Types that need options placeholder
-    if (OPTION_TYPES.has(f.type)) {
-      base.options = [
-        { name: 'Option 1', value: 'option-1' },
-        { name: 'Option 2', value: 'option-2' },
-      ];
-    }
-
-    if (f.type === 'reference')            base.multi         = false;
+    const base = { component: f.type, name: f.name, label: f.label };
+    if (f.type !== 'tab') base.valueType = FIELD_TYPES[f.type]?.valueType || 'string';
+    if (OPTION_TYPES.has(f.type))          base.options = [{ name: 'Option 1', value: 'option-1' }, { name: 'Option 2', value: 'option-2' }];
+    if (f.type === 'reference')            base.multi = false;
     if (f.type === 'date-time')            { base.displayFormat = 'YYYY-MM-DD'; base.valueFormat = 'YYYY-MM-DD'; }
-    if (f.type === 'aem-content')          base.validation    = { rootPath: '' };
+    if (f.type === 'aem-content')          base.validation = { rootPath: '' };
     if (f.type === 'aem-content-fragment') { base.variationName = ''; base.validation = { rootPath: '/content/dam' }; }
-    if (f.type === 'container')            { base.collapsible = true; base.fields = []; }
+
+    // Container: embed sub-fields recursively if defined
+    if (f.type === 'container') {
+      base.collapsible = true;
+      base.fields = f.subFields && f.subFields.length > 0
+        ? buildFieldSchema(f.subFields)
+        : [];
+    }
 
     return base;
   });
 }
 
 // ─── Interactive field collector ──────────────────────────────────────────────
-async function collectFields(rl, context) {
+// depth: 0 = top-level fields, 1 = container sub-fields (no further nesting allowed in UE)
+async function collectFields(rl, context, depth = 0) {
   const fields = [];
+  const indent = depth > 0 ? '    ' : '';
   log.info(`Define ${c.bold}${context}${c.reset} fields. Leave name blank to finish.`);
   log.blank();
 
   while (true) {
-    const name = (await prompt(rl, `Field name (camelCase, blank to finish): `)).trim();
+    const name = (await prompt(rl, `${indent}Field name (camelCase, blank to finish): `)).trim();
     if (!name) break;
-
     if (!/^[a-zA-Z][a-zA-Z0-9]*$/.test(name)) {
       log.warn('Use camelCase only — no hyphens or underscores. Try again.');
       continue;
     }
 
     const defaultLabel = toTitleCase(name.replace(/([A-Z])/g, '-$1').toLowerCase());
-    const label = (await prompt(rl, `Label for "${name}" [${defaultLabel}]: `)).trim() || defaultLabel;
+    const label = (await prompt(rl, `${indent}Label for "${name}" [${defaultLabel}]: `)).trim() || defaultLabel;
 
     printFieldTypes();
-    const typeIn = (await prompt(rl, `Type (name or number) [text]: `)).trim();
-
+    const typeIn = (await prompt(rl, `${indent}Type (name or number) [text]: `)).trim();
     let type = 'text';
     if (typeIn) {
       const byNum = ALL_FIELD_KEYS[parseInt(typeIn, 10) - 1];
       type = byNum || (FIELD_TYPES[typeIn] ? typeIn : 'text');
     }
 
+    const field = { name, label, type };
+
+    // Container — prompt for sub-fields (one level deep only, UE limitation)
+    if (type === 'container') {
+      if (depth >= 1) {
+        log.warn('UE does not support nested containers. Skipping sub-field collection.');
+        field.subFields = [];
+      } else {
+        log.blank();
+        console.log(`  ${c.cyan}  ┌─ Container: "${name}" — define sub-fields ${'─'.repeat(16)}${c.reset}`);
+        field.subFields = await collectFields(rl, `${name} (container sub-fields)`, depth + 1);
+        console.log(`  ${c.cyan}  └─ End of "${name}" container ${'─'.repeat(24)}${c.reset}`);
+        log.blank();
+      }
+    }
+
     const valueType = FIELD_TYPES[type]?.valueType || 'string';
-    fields.push({ name, label, type });
-    log.success(`Added: ${c.bold}${name}${c.reset}  component: ${c.cyan}${type}${c.reset}  valueType: ${c.dim}${valueType || 'layout'}${c.reset}`);
+    fields.push(field);
+
+    if (type === 'container') {
+      log.success(`Added: ${c.bold}${name}${c.reset}  component: ${c.cyan}container${c.reset}  sub-fields: ${c.dim}${(field.subFields || []).map((s) => s.name).join(', ') || 'none'}${c.reset}`);
+    } else {
+      log.success(`Added: ${c.bold}${name}${c.reset}  component: ${c.cyan}${type}${c.reset}  valueType: ${c.dim}${valueType || 'layout'}${c.reset}`);
+    }
     log.blank();
   }
 
-  if (fields.length === 0) {
+  if (fields.length === 0 && depth === 0) {
     fields.push({ name: 'text', label: 'Text', type: 'text' });
     log.warn('No fields defined — added a default "text" field.');
   }
-
   return fields;
 }
 
 // ─── JS template — simple block ───────────────────────────────────────────────
 function genSimpleBlockJS(blockName, fields) {
-  const title     = toTitleCase(blockName);
-  const hasMedia  = fields.some((f) => f.type === 'reference');
+  const title = toTitleCase(blockName);
+  const hasMedia = fields.some((f) => f.type === 'reference');
   const mediaImport = hasMedia ? `import { createOptimizedPicture } from '../../scripts/aem.js';\n\n` : '';
-  const mediaHint   = hasMedia
+  const mediaHint = hasMedia
     ? `\n  // Optimise images\n  block.querySelectorAll('img').forEach((img) => {\n    const pic = createOptimizedPicture(img.src, img.alt, false, [{ width: '750' }]);\n    img.closest('picture')?.replaceWith(pic);\n  });\n`
     : '';
-
-  const fieldComments = fields
-    .map((f, i) => `  //   row[${i}] → ${f.name} (${f.type})`)
-    .join('\n');
+  const fieldComments = fields.map((f, i) => `  //   row[${i}] → ${f.name} (${f.type})`).join('\n');
 
   return `${mediaImport}/**
  * ${title} Block — simple block
  *
- * Authored rows (from component-models.json field order):
+ * Authored rows (component-models.json field order):
 ${fieldComments}
  *
  * @param {HTMLElement} block
  */
 export default function decorate(block) {
   const rows = [...block.children];
-
   rows.forEach((row) => {
     const cells = [...row.children];
-    cells.forEach((cell, i) => {
-      cell.dataset.cellIndex = i;
-    });
+    cells.forEach((cell, i) => { cell.dataset.cellIndex = i; });
   });
 ${mediaHint}
   // TODO: implement decoration logic
@@ -237,30 +235,25 @@ function genContainerBlockJS(blockName, childName, parentFields, childFields) {
   const childTitle = toTitleCase(childName);
   const hasMedia   = childFields.some((f) => f.type === 'reference');
   const mediaImport = hasMedia ? `import { createOptimizedPicture } from '../../scripts/aem.js';\n\n` : '';
-  const mediaHint   = hasMedia
-    ? `\n    // Optimise images inside each slide\n    item.querySelectorAll('img').forEach((img) => {\n      const pic = createOptimizedPicture(img.src, img.alt, false, [{ width: '750' }]);\n      img.closest('picture')?.replaceWith(pic);\n    });\n`
+  const mediaHint = hasMedia
+    ? `\n    // Optimise images inside each item\n    item.querySelectorAll('img').forEach((img) => {\n      const pic = createOptimizedPicture(img.src, img.alt, false, [{ width: '750' }]);\n      img.closest('picture')?.replaceWith(pic);\n    });\n`
     : '';
-
-  const parentComments = parentFields
-    .map((f, i) => `  //   configRow children[${i}] → ${f.name} (${f.type})`)
-    .join('\n');
-
-  const childComments = childFields
-    .map((f, i) => `  //   cells[${i}] → ${f.name} (${f.type})`)
-    .join('\n');
+  const parentComments = parentFields.map((f, i) => `  //   configRow children[${i}] → ${f.name} (${f.type})`).join('\n');
+  const childComments = childFields.map((f, i) => {
+    if (f.type === 'container' && f.subFields?.length) {
+      const subList = f.subFields.map((s) => `\n  //         - ${s.name} (${s.type})`).join('');
+      return `  //   cells[${i}] → ${f.name} (container)${subList}`;
+    }
+    return `  //   cells[${i}] → ${f.name} (${f.type})`;
+  }).join('\n');
 
   return `${mediaImport}/**
  * ${title} Block — container block
  *
- * Structure produced by EDS from authored content:
- *   block
- *     ├── row 0   = block config (parent fields)
+ * Block structure from EDS:
+ *   row 0  = parent config
 ${parentComments}
- *     ├── row 1   = ${childTitle} item
- *     ├── row 2   = ${childTitle} item
- *     └── row N   = ${childTitle} item
- *
- * Each ${childTitle} row cells:
+ *   row 1+ = ${childTitle} items
 ${childComments}
  *
  * @param {HTMLElement} block
@@ -268,26 +261,22 @@ ${childComments}
 export default function decorate(block) {
   const [configRow, ...itemRows] = [...block.children];
 
-  // ── Read parent config ──────────────────────────────────────────
+  // ── Read parent config ───────────────────────────────────────────
   // const configCells = [...configRow.children];
   // Example: const autoplay = configCells[0]?.textContent.trim() === 'true';
 
-  // ── Build item list ─────────────────────────────────────────────
-  const items = itemRows.map((row) => {
-    row.classList.add('${blockName}__item');
-    const cells = [...row.children];
+  // ── Process child items ──────────────────────────────────────────
+  itemRows.forEach((item, index) => {
+    item.classList.add('${blockName}__item');
+    item.dataset.index = index;
+    const cells = [...item.children];
 ${mediaHint}
-    // TODO: read cells and build your slide UI
-    // Example:
+    // TODO: read cells and build slide UI
     // const [imageCell, ctaCell] = cells;
-    // const picture = imageCell.querySelector('picture');
-    // const cta     = ctaCell.querySelector('a');
-
-    return row;
   });
 
-  // ── Render carousel ─────────────────────────────────────────────
-  // TODO: wrap items, add controls (prev/next/dots), init autoplay etc.
+  // ── Render carousel ──────────────────────────────────────────────
+  // TODO: add controls (prev/next/dots), autoplay, etc.
 
   block.classList.add('${blockName}--loaded');
 }
@@ -297,31 +286,19 @@ ${mediaHint}
 // ─── CSS template ─────────────────────────────────────────────────────────────
 function genBlockCSS(blockName, isContainer) {
   const s = `.${blockName}`;
-  const itemCSS = isContainer ? `\n${s}__item {\n  /* Each child item (slide) */\n}\n` : '';
-
+  const itemCSS = isContainer ? `\n${s}__item {\n  /* Each child item */\n}\n` : '';
   return `/* ── ${toTitleCase(blockName)} ──────────────────────────────────────────── */
 
-${s}-wrapper {
-  /* Outer wrapper added by EDS */
-}
+${s}-wrapper { /* Outer wrapper added by EDS */ }
 
-${s} {
-  display: block;
-}
+${s} { display: block; }
 
-${s} > div {
-  /* Each authored row */
-}
+${s} > div { /* Each authored row */ }
 
-${s} > div > div {
-  /* Each cell within a row */
-}
+${s} > div > div { /* Each cell within a row */ }
 ${itemCSS}
 /* ── Variants ──────────────────────────────────────────────────────── */
-
-${s}.${blockName}--dark {
-  /* e.g. "Carousel (dark)" in document */
-}
+${s}.${blockName}--dark { /* e.g. "Carousel (dark)" */ }
 `;
 }
 
@@ -330,35 +307,23 @@ function updateComponentModels(cwd, blockName, parentFields, isContainer, childN
   const filePath = path.join(cwd, 'component-models.json');
   let models = readJSON(filePath) || [];
 
-  // Parent model
   if (models.find((m) => m.id === blockName)) {
     log.warn(`component-models.json already has "${blockName}" — skipping.`);
   } else {
     const parentSchema = buildFieldSchema(parentFields);
-
-    // Always add a classes field to container blocks for variant support
     if (isContainer) {
-      parentSchema.push({
-        component: 'text',
-        name: 'classes',
-        label: 'Variants (comma-separated)',
-        valueType: 'string',
-        value: '',
-      });
+      parentSchema.push({ component: 'text', name: 'classes', label: 'Variants (comma-separated)', valueType: 'string', value: '' });
     }
-
     models.push({ id: blockName, fields: parentSchema });
-    log.success(`Updated  component-models.json  (+1 parent model: "${blockName}")`);
+    log.success(`Updated  component-models.json  (+parent model: "${blockName}")`);
   }
 
-  // Child model (container only)
   if (isContainer) {
-    const childId = childName;
-    if (models.find((m) => m.id === childId)) {
-      log.warn(`component-models.json already has "${childId}" — skipping.`);
+    if (models.find((m) => m.id === childName)) {
+      log.warn(`component-models.json already has "${childName}" — skipping.`);
     } else {
-      models.push({ id: childId, fields: buildFieldSchema(childFields) });
-      log.success(`Updated  component-models.json  (+1 child model: "${childId}")`);
+      models.push({ id: childName, fields: buildFieldSchema(childFields) });
+      log.success(`Updated  component-models.json  (+child model: "${childName}")`);
     }
   }
 
@@ -372,10 +337,7 @@ function updateComponentDefinitions(cwd, blockName, isContainer, childName, defa
   if (!Array.isArray(defs.groups)) defs.groups = [];
 
   let group = defs.groups.find((g) => g.id === 'blocks');
-  if (!group) {
-    group = { title: 'Blocks', id: 'blocks', components: [] };
-    defs.groups.push(group);
-  }
+  if (!group) { group = { title: 'Blocks', id: 'blocks', components: [] }; defs.groups.push(group); }
   if (!Array.isArray(group.components)) group.components = [];
 
   if (group.components.find((comp) => comp.id === blockName)) {
@@ -383,34 +345,20 @@ function updateComponentDefinitions(cwd, blockName, isContainer, childName, defa
     return;
   }
 
-  const template = {
-    name:  toTitleCase(blockName),
-    model: blockName,
-  };
+  const template = { name: toTitleCase(blockName), model: blockName };
 
-  // Container: add filter + pre-populated child items
   if (isContainer) {
     template.filter = blockName;
     template[':items'] = {};
     for (let i = 1; i <= defaultItems; i++) {
-      template[':items'][`item${i}`] = {
-        name:  `${toTitleCase(childName)} ${i}`,
-        model: childName,
-      };
+      template[':items'][`item${i}`] = { name: `${toTitleCase(childName)} ${i}`, model: childName };
     }
   }
 
   group.components.push({
     title: toTitleCase(blockName),
-    id:    blockName,
-    plugins: {
-      xwalk: {
-        page: {
-          resourceType: 'core/franklin/components/block/v1/block',
-          template,
-        },
-      },
-    },
+    id: blockName,
+    plugins: { xwalk: { page: { resourceType: 'core/franklin/components/block/v1/block', template } } },
   });
 
   writeJSON(filePath, defs);
@@ -422,17 +370,10 @@ function updateComponentFilters(cwd, blockName, isContainer, childName) {
   const filePath = path.join(cwd, 'component-filters.json');
   let filters = readJSON(filePath) || [];
 
-  // Allow block in sections
   let section = filters.find((f) => f.id === 'section');
-  if (!section) {
-    section = { id: 'section', components: [] };
-    filters.push(section);
-  }
-  if (!section.components.includes(blockName)) {
-    section.components.push(blockName);
-  }
+  if (!section) { section = { id: 'section', components: [] }; filters.push(section); }
+  if (!section.components.includes(blockName)) section.components.push(blockName);
 
-  // Container: restrict what can go INSIDE the block to child items only
   if (isContainer) {
     if (filters.find((f) => f.id === blockName)) {
       log.warn(`component-filters.json already has filter "${blockName}" — skipping.`);
@@ -445,12 +386,9 @@ function updateComponentFilters(cwd, blockName, isContainer, childName) {
   log.success(`Updated  component-filters.json`);
 }
 
-// ─── Write block files ────────────────────────────────────────────────────────
+// ─── Write file helper ────────────────────────────────────────────────────────
 function writeBlockFile(filePath, content, label) {
-  if (fs.existsSync(filePath)) {
-    log.warn(`${label} already exists — skipped.`);
-    return;
-  }
+  if (fs.existsSync(filePath)) { log.warn(`${label} already exists — skipped.`); return; }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content, 'utf8');
   log.success(`Created  ${label}`);
@@ -463,32 +401,25 @@ async function main() {
   const rl  = readline.createInterface({ input: process.stdin, output: process.stdout });
   const cwd = process.cwd();
 
-  process.on('SIGINT', () => {
-    log.blank();
-    log.info('Cancelled.');
-    rl.close();
-    process.exit(0);
-  });
+  process.on('SIGINT', () => { log.blank(); log.info('Cancelled.'); rl.close(); process.exit(0); });
 
-  // ── 1. Block name ────────────────────────────────────────────────────────────
+  // 1. Block name
   let blockName = process.argv[2]?.trim().toLowerCase().replace(/\s+/g, '-');
   if (!blockName) {
     blockName = (await prompt(rl, `Block name (kebab-case, e.g. card-carousel): `))
       .trim().toLowerCase().replace(/\s+/g, '-');
   }
-
   if (!blockName || !isValidBlockName(blockName)) {
     log.error('Invalid block name. Use lowercase letters, digits, and hyphens only.');
-    rl.close();
-    process.exit(1);
+    rl.close(); process.exit(1);
   }
 
   log.divider();
-  log.info(`Block name      : ${c.bold}${blockName}${c.reset}`);
-  log.info(`Working directory: ${c.dim}${cwd}${c.reset}`);
+  log.info(`Block: ${c.bold}${blockName}${c.reset}`);
+  log.info(`Dir  : ${c.dim}${cwd}${c.reset}`);
   log.divider();
 
-  // ── 2. Block type ────────────────────────────────────────────────────────────
+  // 2. Block type
   log.blank();
   console.log(`  ${c.bold}Block type:${c.reset}`);
   console.log(`    ${c.dim}1.${c.reset} ${c.cyan}Simple${c.reset}     ${c.dim}Fixed rows — hero, banner, teaser, quote${c.reset}`);
@@ -498,92 +429,68 @@ async function main() {
   const isContainer = typeIn === '2' || typeIn.toLowerCase() === 'container';
   log.blank();
 
-  // ── 3. Parent fields ─────────────────────────────────────────────────────────
+  // 3. Parent fields
   log.section(isContainer ? `Phase 1 — Parent block fields (${blockName} config)` : `Define block fields`);
   const parentFields = await collectFields(rl, isContainer ? `${blockName} config` : blockName);
 
-  // ── 4. Container: child name + child fields + default item count ─────────────
-  let childName    = '';
-  let childFields  = [];
-  let defaultItems = 3;
-
+  // 4. Container: child setup
+  let childName = '', childFields = [], defaultItems = 3;
   if (isContainer) {
     log.blank();
     log.divider();
     log.section(`Phase 2 — Child item`);
 
-    // Child block name
     const suggestedChild = `${blockName}-item`;
     const childIn = (await prompt(rl, `Child item name [${suggestedChild}]: `)).trim().toLowerCase().replace(/\s+/g, '-');
     childName = childIn || suggestedChild;
 
     if (!isValidBlockName(childName)) {
-      log.error(`Invalid child name "${childName}".`);
-      rl.close();
-      process.exit(1);
+      log.error(`Invalid child name "${childName}".`); rl.close(); process.exit(1);
     }
 
     log.blank();
-    log.info(`Child item: ${c.bold}${childName}${c.reset}`);
+    log.info(`Child: ${c.bold}${childName}${c.reset}`);
     log.blank();
 
-    // Child fields
     childFields = await collectFields(rl, `${childName} (child item)`);
 
-    // Default pre-populated items
     log.blank();
-    const defIn = (await prompt(rl, `How many default items to pre-populate in UE? [3]: `)).trim();
-    defaultItems = parseInt(defIn, 10) || 3;
-    if (defaultItems < 1) defaultItems = 1;
-    if (defaultItems > 10) defaultItems = 10;
+    const defIn = (await prompt(rl, `Default items to pre-populate in UE? [3]: `)).trim();
+    defaultItems = Math.min(Math.max(parseInt(defIn, 10) || 3, 1), 10);
   }
 
   rl.close();
 
-  // ── 5. Write files ───────────────────────────────────────────────────────────
-  log.blank();
-  log.divider();
-  log.blank();
+  // 5. Write files
+  log.blank(); log.divider(); log.blank();
 
   const blockDir = path.join(cwd, 'blocks', blockName);
-
   const jsContent = isContainer
     ? genContainerBlockJS(blockName, childName, parentFields, childFields)
     : genSimpleBlockJS(blockName, parentFields);
 
-  writeBlockFile(path.join(blockDir, `${blockName}.js`),  jsContent,                    `blocks/${blockName}/${blockName}.js`);
+  writeBlockFile(path.join(blockDir, `${blockName}.js`),  jsContent,                         `blocks/${blockName}/${blockName}.js`);
   writeBlockFile(path.join(blockDir, `${blockName}.css`), genBlockCSS(blockName, isContainer), `blocks/${blockName}/${blockName}.css`);
 
-  // ── 6. Update UE JSON files ──────────────────────────────────────────────────
   updateComponentModels(cwd, blockName, parentFields, isContainer, childName, childFields);
   updateComponentDefinitions(cwd, blockName, isContainer, childName, defaultItems);
   updateComponentFilters(cwd, blockName, isContainer, childName);
 
-  // ── 7. Summary ───────────────────────────────────────────────────────────────
-  log.blank();
-  log.divider();
-  console.log(`\n  ${c.bold}${c.green}✔ "${blockName}" scaffolded! ${isContainer ? `(container → ${defaultItems} default ${childName} items)` : '(simple)'}${c.reset}\n`);
-
-  console.log(`  ${c.dim}Files:${c.reset}`);
+  // 6. Summary
+  log.blank(); log.divider();
+  console.log(`\n  ${c.bold}${c.green}✔ "${blockName}" scaffolded! ${isContainer ? `(container → ${defaultItems}x ${childName})` : '(simple)'}${c.reset}\n`);
+  console.log(`  ${c.dim}Files created:${c.reset}`);
   console.log(`    ${c.cyan}blocks/${blockName}/${blockName}.js${c.reset}`);
   console.log(`    ${c.cyan}blocks/${blockName}/${blockName}.css${c.reset}`);
   if (isContainer) {
-    console.log(`\n  ${c.dim}Models registered:${c.reset}`);
-    console.log(`    ${c.cyan}${blockName}${c.reset}       ${c.dim}(parent — ${parentFields.length} field${parentFields.length > 1 ? 's' : ''})${c.reset}`);
-    console.log(`    ${c.cyan}${childName}${c.reset}  ${c.dim}(child  — ${childFields.length} field${childFields.length > 1 ? 's' : ''})${c.reset}`);
-    console.log(`\n  ${c.dim}Filters:${c.reset}`);
-    console.log(`    ${c.cyan}section${c.reset}       ${c.dim}→ allows ${blockName}${c.reset}`);
-    console.log(`    ${c.cyan}${blockName}${c.reset}  ${c.dim}→ allows only ${childName} inside${c.reset}`);
+    console.log(`\n  ${c.dim}Models:${c.reset}  ${c.cyan}${blockName}${c.reset} (parent)  +  ${c.cyan}${childName}${c.reset} (child)`);
+    console.log(`  ${c.dim}Filters:${c.reset} section → ${blockName} → ${childName} only`);
   }
-
   console.log(`\n  ${c.dim}Next steps:${c.reset}`);
-  console.log(`    1. Run ${c.bold}aem up${c.reset} and open ${c.bold}http://localhost:3000${c.reset}`);
-  console.log(`    2. Add the block in Universal Editor — ${defaultItems} ${isContainer ? childName + ' items' : 'fields'} are pre-populated`);
-  console.log(`    3. Implement decoration logic in ${c.bold}blocks/${blockName}/${blockName}.js${c.reset}`);
+  console.log(`    1. ${c.bold}aem up${c.reset} → http://localhost:3000`);
+  console.log(`    2. Add block in Universal Editor (${defaultItems} ${isContainer ? childName + ' items' : 'fields'} pre-populated)`);
+  console.log(`    3. Implement ${c.bold}blocks/${blockName}/${blockName}.js${c.reset}`);
   console.log(`    4. Style in ${c.bold}blocks/${blockName}/${blockName}.css${c.reset}\n`);
 }
 
-main().catch((err) => {
-  log.error(err.message);
-  process.exit(1);
-});
+main().catch((err) => { log.error(err.message); process.exit(1); });
