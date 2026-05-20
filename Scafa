@@ -4,12 +4,18 @@
  * AEM EDS Block Scaffolder
  *
  * Commands:
- *   node scaffold-block.js create [block-name]   Scaffold a new block
- *   node scaffold-block.js remove <block-name>   Delete block + clean JSON files
- *   node scaffold-block.js list                  Show all blocks with status
+ *   eds-scaffold create [block-name]   Scaffold a new block
+ *   eds-scaffold remove <block-name>   Delete block folder (JSON goes with it)
+ *   eds-scaffold list                  Show all blocks with status
+ *   eds-scaffold merge                 Assemble global JSON files from all block JSONs
  *
  * Flags:
  *   --dry-run    Print what would be generated without writing any files
+ *
+ * Block-level JSON pattern:
+ *   Each block owns blocks/<name>/<name>.json containing its models,
+ *   definitions and filters. Global JSON files are assembled on demand
+ *   via the merge command — never edited by hand.
  */
 
 const fs        = require('fs');
@@ -653,59 +659,65 @@ async function collectFields(rl, context, depth = 0) {
   return fields;
 }
 
-// ─── JSON updaters ─────────────────────────────────────────────────────────────
-function updateModels(cwd, blockName, parentFields, isContainer, childName, childFields, dryRun) {
-  const fp = path.join(cwd, 'component-models.json');
-  let models = readJSON(fp) || [];
+// ─── Consolidated block JSON writer ──────────────────────────────────────────
+// Generates a single blocks/<name>/_<name>.json containing
+// definitions, models and filters — matching the boilerplate pattern.
+// `npm run build:json` (merge-json-cli) assembles these into global files.
 
-  if (models.find((m) => m.id === blockName)) { log.warn(`component-models.json already has "${blockName}" — skipping.`); }
-  else {
-    const schema = buildFieldSchema(parentFields);
-    if (isContainer) schema.push({ component: 'text', name: 'classes', label: 'Variants (comma-separated)', valueType: 'string', value: '' });
-    models.push({ id: blockName, fields: schema });
-    dryRun ? log.dry(`Would add model "${blockName}" to component-models.json`) : log.success(`Updated  component-models.json  (+parent model: "${blockName}")`);
-  }
-
+function genBlockJSON(blockName, isContainer, parentFields, childName, childFields, defaultItems) {
+  // ── models ───────────────────────────────────────────────────────────────────
+  const models = [];
+  const parentSchema = buildFieldSchema(parentFields);
   if (isContainer) {
-    if (models.find((m) => m.id === childName)) { log.warn(`component-models.json already has "${childName}" — skipping.`); }
-    else {
-      models.push({ id: childName, fields: buildFieldSchema(childFields) });
-      dryRun ? log.dry(`Would add model "${childName}" to component-models.json`) : log.success(`Updated  component-models.json  (+child model: "${childName}")`);
-    }
+    parentSchema.push({
+      component: 'text', name: 'classes',
+      label: 'Variants (comma-separated)', valueType: 'string', value: '',
+    });
   }
-  if (!dryRun) writeJSON(fp, models);
-}
+  models.push({ id: blockName, fields: parentSchema });
+  if (isContainer) {
+    models.push({ id: childName, fields: buildFieldSchema(childFields) });
+  }
 
-function updateDefinitions(cwd, blockName, isContainer, childName, defaultItems, dryRun) {
-  const fp   = path.join(cwd, 'component-definitions.json');
-  let defs   = readJSON(fp) || { groups: [] };
-  if (!Array.isArray(defs.groups)) defs.groups = [];
-  let group  = defs.groups.find((g) => g.id === 'blocks');
-  if (!group) { group = { title: 'Blocks', id: 'blocks', components: [] }; defs.groups.push(group); }
-  if (!Array.isArray(group.components)) group.components = [];
-  if (group.components.find((comp) => comp.id === blockName)) { log.warn(`component-definitions.json already has "${blockName}" — skipping.`); return; }
-
+  // ── definitions ──────────────────────────────────────────────────────────────
   const template = { name: toTitleCase(blockName), model: blockName };
   if (isContainer) {
     template.filter    = blockName;
     template[':items'] = {};
-    for (let i = 1; i <= defaultItems; i++) template[':items'][`item${i}`] = { name: `${toTitleCase(childName)} ${i}`, model: childName };
+    for (let i = 1; i <= defaultItems; i++) {
+      template[':items'][`item${i}`] = {
+        name:  `${toTitleCase(childName)} ${i}`,
+        model: childName,
+      };
+    }
   }
-  group.components.push({ title: toTitleCase(blockName), id: blockName, plugins: { xwalk: { page: { resourceType: 'core/franklin/components/block/v1/block', template } } } });
-  dryRun ? log.dry(`Would register "${blockName}" in component-definitions.json`) : (writeJSON(fp, defs), log.success(`Updated  component-definitions.json`));
+
+  const definitions = [{
+    title: toTitleCase(blockName),
+    id:    blockName,
+    plugins: {
+      xwalk: {
+        page: {
+          resourceType: 'core/franklin/components/block/v1/block',
+          template,
+        },
+      },
+    },
+  }];
+
+  // ── filters ──────────────────────────────────────────────────────────────────
+  const filters = [];
+  if (isContainer) {
+    filters.push({ id: blockName, components: [childName] });
+  }
+
+  return { definitions, models, filters };
 }
 
-function updateFilters(cwd, blockName, isContainer, childName, dryRun) {
-  const fp      = path.join(cwd, 'component-filters.json');
-  let filters   = readJSON(fp) || [];
-  let section   = filters.find((f) => f.id === 'section');
-  if (!section) { section = { id: 'section', components: [] }; filters.push(section); }
-  if (!section.components.includes(blockName)) section.components.push(blockName);
-  if (isContainer) {
-    if (!filters.find((f) => f.id === blockName)) filters.push({ id: blockName, components: [childName] });
-    else log.warn(`component-filters.json already has filter "${blockName}" — skipping.`);
-  }
-  dryRun ? log.dry(`Would update component-filters.json`) : (writeJSON(fp, filters), log.success(`Updated  component-filters.json`));
+function writeBlockJSON(blockDir, blockName, blockJSON, dryRun) {
+  const label   = `blocks/${blockName}/_${blockName}.json`;
+  const content = JSON.stringify(blockJSON, null, 2) + '\n';
+  writeFile(path.join(blockDir, `_${blockName}.json`), content, label, dryRun);
 }
 
 // ─── File writer (dry-run aware) ──────────────────────────────────────────────
@@ -783,24 +795,28 @@ async function cmdCreate(rl, cwd, argName, dryRun) {
     ? genContainerBlockJS(blockName, childName, parentFields, childFields)
     : genSimpleBlockJS(blockName, parentFields);
 
-  writeFile(path.join(dir, `${blockName}.js`),  jsContent,                              `blocks/${blockName}/${blockName}.js`,   dryRun);
-  writeFile(path.join(dir, `${blockName}.css`), genBlockCSS(blockName, isContainer),    `blocks/${blockName}/${blockName}.css`,  dryRun);
+  writeFile(path.join(dir, `${blockName}.js`),  jsContent,                              `blocks/${blockName}/${blockName}.js`,  dryRun);
+  writeFile(path.join(dir, `${blockName}.css`), genBlockCSS(blockName, isContainer),    `blocks/${blockName}/${blockName}.css`, dryRun);
   writeFile(path.join(dir, 'README.md'),        genReadme(blockName, isContainer, parentFields, childName, childFields), `blocks/${blockName}/README.md`, dryRun);
 
-  updateModels(cwd, blockName, parentFields, isContainer, childName, childFields, dryRun);
-  updateDefinitions(cwd, blockName, isContainer, childName, defaultItems, dryRun);
-  updateFilters(cwd, blockName, isContainer, childName, dryRun);
+  const blockJSON = genBlockJSON(blockName, isContainer, parentFields, childName, childFields, defaultItems);
+  writeBlockJSON(dir, blockName, blockJSON, dryRun);
 
   // Summary
   log.blank(); log.divider();
   const prefix = dryRun ? `${c.yellow}~ DRY RUN${c.reset} ` : `${c.green}✔${c.reset} `;
   console.log(`\n  ${prefix}${c.bold}"${blockName}" ${dryRun ? 'would be' : 'scaffolded!'} ${isContainer ? `(container → ${defaultItems}x ${childName})` : '(simple)'}${c.reset}\n`);
   if (!dryRun) {
-    console.log(`  ${c.dim}Next steps:${c.reset}`);
-    console.log(`    1. ${c.bold}aem up${c.reset} → http://localhost:3000`);
-    console.log(`    2. Add block in Universal Editor`);
-    console.log(`    3. Implement ${c.bold}blocks/${blockName}/${blockName}.js${c.reset}`);
-    console.log(`    4. Style  ${c.bold}blocks/${blockName}/${blockName}.css${c.reset}\n`);
+    console.log(`  ${c.dim}Files created:${c.reset}`);
+    console.log(`    ${c.cyan}blocks/${blockName}/${blockName}.js${c.reset}`);
+    console.log(`    ${c.cyan}blocks/${blockName}/${blockName}.css${c.reset}`);
+    console.log(`    ${c.cyan}blocks/${blockName}/README.md${c.reset}`);
+    console.log(`    ${c.cyan}blocks/${blockName}/_${blockName}.json${c.reset}  ${c.dim}(definitions + models + filters)${c.reset}`);
+    console.log(`\n  ${c.dim}Next steps:${c.reset}`);
+    console.log(`    1. ${c.bold}npm run build:json${c.reset} → assemble global JSON files`);
+    console.log(`    2. ${c.bold}aem up${c.reset} → http://localhost:3000`);
+    console.log(`    3. Add block in Universal Editor`);
+    console.log(`    4. Implement ${c.bold}blocks/${blockName}/${blockName}.js${c.reset}\n`);
   }
 }
 
@@ -816,7 +832,7 @@ async function cmdRemove(rl, cwd, blockName, dryRun) {
   if (!fs.existsSync(blockDir)) { log.error(`blocks/${blockName}/ does not exist.`); rl.close(); process.exit(1); }
 
   if (!dryRun) {
-    log.warn(`This will delete blocks/${blockName}/ and remove all UE JSON entries.`);
+    log.warn(`This will delete blocks/${blockName}/ including all JS, CSS, README and block-level JSON files.`);
     const ok = await confirm(rl, 'Are you sure?', false);
     if (!ok) { log.info('Cancelled.'); rl.close(); return; }
   }
@@ -824,46 +840,19 @@ async function cmdRemove(rl, cwd, blockName, dryRun) {
   rl.close();
   log.divider();
 
-  // Remove block directory
-  if (dryRun) { log.dry(`Would delete blocks/${blockName}/`); }
-  else { fs.rmSync(blockDir, { recursive: true, force: true }); log.success(`Deleted  blocks/${blockName}/`); }
-
-  // Clean component-models.json
-  const modelsPath = path.join(cwd, 'component-models.json');
-  let models = readJSON(modelsPath);
-  if (models) {
-    const before = models.length;
-    models = models.filter((m) => m.id !== blockName && m.id !== `${blockName}-item`);
-    if (dryRun) log.dry(`Would remove ${before - models.length} model(s) from component-models.json`);
-    else { writeJSON(modelsPath, models); log.success(`Updated  component-models.json  (removed ${before - models.length} model(s))`); }
-  }
-
-  // Clean component-definitions.json
-  const defsPath = path.join(cwd, 'component-definitions.json');
-  let defs = readJSON(defsPath);
-  if (defs) {
-    let removed = 0;
-    (defs.groups || []).forEach((g) => {
-      const before = (g.components || []).length;
-      g.components = (g.components || []).filter((comp) => comp.id !== blockName);
-      removed += before - g.components.length;
-    });
-    if (dryRun) log.dry(`Would remove "${blockName}" from component-definitions.json`);
-    else { writeJSON(defsPath, defs); log.success(`Updated  component-definitions.json  (removed ${removed} entry)`); }
-  }
-
-  // Clean component-filters.json
-  const filtersPath = path.join(cwd, 'component-filters.json');
-  let filters = readJSON(filtersPath);
-  if (filters) {
-    filters = filters.filter((f) => f.id !== blockName);
-    filters.forEach((f) => { if (Array.isArray(f.components)) f.components = f.components.filter((comp) => comp !== blockName && comp !== `${blockName}-item`); });
-    if (dryRun) log.dry(`Would update component-filters.json`);
-    else { writeJSON(filtersPath, filters); log.success(`Updated  component-filters.json`); }
+  if (dryRun) {
+    const files = fs.readdirSync(blockDir).map((f) => `blocks/${blockName}/${f}`);
+    log.dry(`Would delete blocks/${blockName}/ (${files.length} file(s)):`);
+    files.forEach((f) => console.log(`  ${c.dim}  ${f}${c.reset}`));
+  } else {
+    fs.rmSync(blockDir, { recursive: true, force: true });
+    log.success(`Deleted  blocks/${blockName}/`);
   }
 
   log.blank();
-  dryRun ? log.dry(`Dry run complete — nothing was deleted.`) : log.success(`"${blockName}" removed successfully.`);
+  log.info(`Run ${c.bold}npm run build:json${c.reset} to rebuild the global JSON files.`);
+  log.blank();
+  dryRun ? log.dry('Dry run complete — nothing deleted.') : log.success(`"${blockName}" removed.`);
   log.blank();
 }
 
@@ -876,14 +865,6 @@ function cmdList(cwd) {
   const blocksDir = path.join(cwd, 'blocks');
   if (!fs.existsSync(blocksDir)) { log.warn('No blocks/ directory found.'); return; }
 
-  const models    = readJSON(path.join(cwd, 'component-models.json')) || [];
-  const defs      = readJSON(path.join(cwd, 'component-definitions.json'));
-  const filters   = readJSON(path.join(cwd, 'component-filters.json')) || [];
-
-  const modelIds  = new Set(models.map((m) => m.id));
-  const defIds    = new Set((defs?.groups || []).flatMap((g) => (g.components || []).map((comp) => comp.id)));
-  const filterIds = new Set(filters.flatMap((f) => f.components || []));
-
   const blocks = fs.readdirSync(blocksDir, { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name);
@@ -891,26 +872,25 @@ function cmdList(cwd) {
   if (!blocks.length) { log.info('No blocks found.'); return; }
 
   // Header
-  console.log(`\n  ${c.bold}${col('Block', 26)} JS   CSS  Model  Def   Filter  README${c.reset}`);
+  console.log(`\n  ${c.bold}${col('Block', 26)} JS   CSS  JSON   README${c.reset}`);
   log.divider();
 
   let issues = 0;
   blocks.forEach((name) => {
-    const dir      = path.join(blocksDir, name);
-    const hasJS    = fs.existsSync(path.join(dir, `${name}.js`));
-    const hasCSS   = fs.existsSync(path.join(dir, `${name}.css`));
-    const hasModel = modelIds.has(name);
-    const hasDef   = defIds.has(name);
-    const hasFilt  = filterIds.has(name);
-    const hasRM    = fs.existsSync(path.join(dir, 'README.md'));
-    const allGood  = hasJS && hasCSS && hasModel && hasDef;
+    const dir    = path.join(blocksDir, name);
+    const hasJS  = fs.existsSync(path.join(dir, `${name}.js`));
+    const hasCSS = fs.existsSync(path.join(dir, `${name}.css`));
+    const hasJSON = fs.existsSync(path.join(dir, `_${name}.json`));
+    const hasRM  = fs.existsSync(path.join(dir, 'README.md'));
+    const allGood = hasJS && hasCSS && hasJSON;
     if (!allGood) issues++;
     const nameColor = allGood ? c.reset : c.yellow;
-    console.log(`  ${nameColor}${col(name, 26)}${c.reset} ${tick(hasJS)}    ${tick(hasCSS)}   ${tick(hasModel)}     ${tick(hasDef)}    ${tick(hasFilt)}      ${tick(hasRM)}`);
+    console.log(`  ${nameColor}${col(name, 26)}${c.reset} ${tick(hasJS)}    ${tick(hasCSS)}   ${tick(hasJSON)}    ${tick(hasRM)}`);
   });
 
   log.blank();
   log.info(`${blocks.length} block(s) found${issues ? `  ${c.yellow}(${issues} with issues)${c.reset}` : `  ${c.green}(all clean)${c.reset}`}`);
+  log.info(`Run ${c.bold}npm run build:json${c.reset} to rebuild global component-*.json files`);
   log.blank();
 }
 
@@ -924,11 +904,21 @@ function printHelp() {
 
   ${c.bold}Commands:${c.reset}
     ${c.cyan}create${c.reset} [name]   Scaffold a new block  ${c.dim}(default if no command given)${c.reset}
-    ${c.cyan}remove${c.reset} <name>   Delete block + remove from all UE JSON files
-    ${c.cyan}list${c.reset}            Show all blocks with file & authoring status
+    ${c.cyan}remove${c.reset} <name>   Delete block folder (JSON files go with it)
+    ${c.cyan}list${c.reset}            Show all blocks with file & authoring JSON status
 
   ${c.bold}Flags:${c.reset}
     ${c.cyan}--dry-run${c.reset}       Preview what would be generated without writing files
+
+  ${c.bold}Block-level JSON pattern:${c.reset}
+    Each block owns a single consolidated JSON file — no global file edits.
+    Run ${c.bold}npm run build:json${c.reset} (boilerplate script) to assemble globals.
+
+    blocks/<name>/
+      <name>.js              ← decoration logic
+      <name>.css             ← styles
+      _<name>.json           ← definitions + models + filters (all in one)
+      README.md              ← authoring guide
 
   ${c.bold}Examples:${c.reset}
     npx eds-block-scaffold create
