@@ -1,45 +1,320 @@
-e} (${f.type})`)
-    .join('\n');
+#!/usr/bin/env node
 
-  return `${mediaImport}/**
+/**
+ * AEM EDS Block Scaffolder
+ *
+ * Commands:
+ *   node scaffold-block.js create [block-name]   Scaffold a new block
+ *   node scaffold-block.js remove <block-name>   Delete block + clean JSON files
+ *   node scaffold-block.js list                  Show all blocks with status
+ *
+ * Flags:
+ *   --dry-run    Print what would be generated without writing any files
+ */
+
+const fs        = require('fs');
+const path      = require('path');
+const readline  = require('readline');
+
+// ─── ANSI colours ─────────────────────────────────────────────────────────────
+const c = {
+  reset: '\x1b[0m', bold: '\x1b[1m', dim: '\x1b[2m',
+  green: '\x1b[32m', cyan: '\x1b[36m', yellow: '\x1b[33m', red: '\x1b[31m',
+};
+
+const log = {
+  info:    (m) => console.log(`  ${c.cyan}ℹ${c.reset}  ${m}`),
+  success: (m) => console.log(`  ${c.green}✔${c.reset}  ${m}`),
+  warn:    (m) => console.log(`  ${c.yellow}⚠${c.reset}  ${m}`),
+  error:   (m) => console.log(`  ${c.red}✖${c.reset}  ${m}`),
+  dry:     (m) => console.log(`  ${c.yellow}~${c.reset}  ${c.dim}[dry-run]${c.reset} ${m}`),
+  title:   (m) => console.log(`\n${c.bold}${c.cyan}${m}${c.reset}\n`),
+  divider: ()  => console.log(`  ${c.dim}${'─'.repeat(50)}${c.reset}`),
+  blank:   ()  => console.log(''),
+  section: (m) => console.log(`\n  ${c.bold}${m}${c.reset}\n`),
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const toTitleCase   = (s) => s.replace(/-/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+const isValidName   = (s) => /^[a-z][a-z0-9-]*$/.test(s);
+const prompt        = (rl, q) => new Promise((res) => rl.question(`  ${q}`, res));
+const confirm       = async (rl, q, def = true) => {
+  const hint = def ? '[Y/n]' : '[y/N]';
+  const a = (await prompt(rl, `${q} ${c.dim}${hint}${c.reset} `)).trim().toLowerCase();
+  return !a ? def : a === 'y' || a === 'yes';
+};
+const readJSON      = (p) => { try { return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null; } catch { return null; } };
+const writeJSON     = (p, d) => fs.writeFileSync(p, JSON.stringify(d, null, 2) + '\n', 'utf8');
+const tick          = (v) => v ? `${c.green}✔${c.reset}` : `${c.red}✖${c.reset}`;
+const col           = (s, w) => String(s || '').padEnd(w).slice(0, w);
+
+// ─── Field types ──────────────────────────────────────────────────────────────
+const FIELD_TYPES = {
+  text:                      { label: 'Single-line text',                valueType: 'string',   multi: true  },
+  textarea:                  { label: 'Multi-line plain text',           valueType: 'string',   multi: false },
+  richtext:                  { label: 'Rich text (HTML / WYSIWYG)',      valueType: 'string',   multi: false },
+  reference:                 { label: 'Image / Media (DAM asset)',       valueType: 'string',   multi: true  },
+  'aem-content':             { label: 'AEM page / content / link',       valueType: 'string',   multi: true  },
+  'aem-content-fragment':    { label: 'Content Fragment picker',         valueType: 'string',   multi: false },
+  'aem-experience-fragment': { label: 'Experience Fragment picker',      valueType: 'string',   multi: false },
+  boolean:                   { label: 'Boolean toggle (true / false)',   valueType: 'boolean',  multi: false },
+  select:                    { label: 'Dropdown — single value',         valueType: 'string',   multi: false },
+  multiselect:               { label: 'Dropdown — multiple values',      valueType: 'string[]', multi: false },
+  'radio-group':             { label: 'Radio buttons — single value',    valueType: 'string',   multi: false },
+  'checkbox-group':          { label: 'Checkboxes — multiple values',    valueType: 'string[]', multi: false },
+  number:                    { label: 'Number input',                    valueType: 'number',   multi: false },
+  'date-time':               { label: 'Date / time picker',             valueType: 'date',     multi: false },
+  'aem-tag':                 { label: 'AEM Tag picker (cq:tags)',        valueType: 'string',   multi: false },
+  container:                 { label: 'Grouped / repeating field set',   valueType: 'string',   multi: false },
+  tab:                       { label: 'Tab — organises fields in panel', valueType: null,       multi: false },
+};
+
+const FIELD_GROUPS = [
+  { title: 'Text inputs',         keys: ['text', 'textarea', 'richtext'] },
+  { title: 'Media & references',  keys: ['reference', 'aem-content', 'aem-content-fragment', 'aem-experience-fragment'] },
+  { title: 'Selection & toggles', keys: ['boolean', 'select', 'multiselect', 'radio-group', 'checkbox-group'] },
+  { title: 'Specialised',         keys: ['number', 'date-time', 'aem-tag'] },
+  { title: 'Layout (no value)',   keys: ['container', 'tab'] },
+];
+
+const ALL_FIELD_KEYS = Object.keys(FIELD_TYPES);
+
+function printFieldTypes() {
+  let idx = 1;
+  for (const group of FIELD_GROUPS) {
+    console.log(`\n  ${c.dim}── ${group.title} ${'─'.repeat(28 - group.title.length)}${c.reset}`);
+    for (const k of group.keys) {
+      const e  = FIELD_TYPES[k];
+      const vt = e.valueType ? `${c.dim}[${e.valueType}]${c.reset}` : `${c.dim}[layout]${c.reset}`;
+      const mu = e.multi ? ` ${c.dim}(multi ok)${c.reset}` : '';
+      console.log(`  ${c.dim}${String(idx).padStart(3)}.${c.reset} ${c.cyan}${k.padEnd(26)}${c.reset}${vt}${mu} ${c.dim}${e.label}${c.reset}`);
+      idx++;
+    }
+  }
+  console.log('');
+}
+
+// ─── Validation config ────────────────────────────────────────────────────────
+const VALIDATIONS = {
+  text:                     ['required', 'description', 'readOnly', 'hidden', 'minLength', 'maxLength'],
+  textarea:                 ['required', 'description', 'readOnly', 'hidden', 'minLength', 'maxLength'],
+  richtext:                 ['required', 'description', 'readOnly', 'hidden'],
+  reference:                ['required', 'description', 'readOnly', 'hidden'],
+  'aem-content':            ['required', 'description', 'readOnly', 'hidden', 'rootPath'],
+  'aem-content-fragment':   ['required', 'description', 'readOnly', 'hidden', 'rootPath'],
+  'aem-experience-fragment':['required', 'description', 'readOnly', 'hidden'],
+  boolean:                  ['description', 'readOnly', 'hidden', 'customErrorMsg'],
+  select:                   ['required', 'description', 'readOnly', 'hidden'],
+  multiselect:              ['required', 'description', 'readOnly', 'hidden'],
+  'radio-group':            ['required', 'description', 'readOnly', 'hidden'],
+  'checkbox-group':         ['required', 'description', 'readOnly', 'hidden'],
+  number:                   ['required', 'description', 'readOnly', 'hidden', 'min', 'max', 'step'],
+  'date-time':              ['required', 'description', 'readOnly', 'hidden', 'min', 'max'],
+  'aem-tag':                ['required', 'description', 'readOnly', 'hidden'],
+  container:                ['description', 'readOnly', 'hidden'],
+  tab:                      [],
+};
+
+// ─── Field schema builder ─────────────────────────────────────────────────────
+function buildFieldSchema(fields) {
+  const OPTION_TYPES = new Set(['select', 'multiselect', 'radio-group', 'checkbox-group']);
+  return fields.map((f) => {
+    const base = { component: f.type, name: f.name, label: f.label };
+    if (f.type !== 'tab')    base.valueType   = FIELD_TYPES[f.type]?.valueType || 'string';
+    if (f.required)          base.required    = true;
+    if (f.readOnly)          base.readOnly    = true;
+    if (f.hidden)            base.hidden      = true;
+    if (f.description)       base.description = f.description;
+    if (f.multi)             base.multi       = true;
+    else if (f.type === 'reference') base.multi = false;
+
+    // Real options from collector (or placeholder fallback)
+    if (OPTION_TYPES.has(f.type)) {
+      base.options = f.options?.length
+        ? f.options
+        : [{ name: 'Option 1', value: 'option-1' }, { name: 'Option 2', value: 'option-2' }];
+    }
+
+    // Default value
+    if (f.defaultValue !== undefined && f.defaultValue !== '') {
+      base.value = f.type === 'number'  ? Number(f.defaultValue)
+                 : f.type === 'boolean' ? (f.defaultValue === 'true' || f.defaultValue === true)
+                 : f.defaultValue;
+    }
+
+    if (f.type === 'date-time') { base.displayFormat = 'YYYY-MM-DD'; base.valueFormat = 'YYYY-MM-DD'; }
+    if (f.type === 'aem-content-fragment') base.variationName = '';
+
+    const validation = {};
+    if (f.minLength !== undefined) validation.minLength = f.minLength;
+    if (f.maxLength !== undefined) validation.maxLength = f.maxLength;
+    if (f.min       !== undefined) validation.min       = f.min;
+    if (f.max       !== undefined) validation.max       = f.max;
+    if (f.step      !== undefined) validation.step      = f.step;
+    if (f.rootPath)                validation.rootPath  = f.rootPath;
+    if (f.customErrorMsg)          validation.customErrorMsg = f.customErrorMsg;
+    if (Object.keys(validation).length) base.validation = validation;
+
+    if (f.type === 'container') {
+      base.collapsible = true;
+      base.fields = f.subFields?.length ? buildFieldSchema(f.subFields) : [];
+    }
+    return base;
+  });
+}
+
+// ─── Smarter decorate body — per-field code snippets ─────────────────────────
+function fieldToCode(f, cellVar, indent = '  ') {
+  const varName = f.name;
+  switch (f.type) {
+    case 'text':
+    case 'textarea':
+      return f.multi
+        ? `${indent}const ${varName} = [...${cellVar}.querySelectorAll('p, li')].map((el) => el.textContent.trim());`
+        : `${indent}const ${varName} = ${cellVar}.textContent.trim();`;
+    case 'richtext':
+      return `${indent}const ${varName} = ${cellVar}.innerHTML;`;
+    case 'reference':
+      return f.multi
+        ? `${indent}const ${varName} = [...${cellVar}.querySelectorAll('picture')];`
+        : `${indent}const ${varName}El = ${cellVar}.querySelector('picture');\n${indent}// createOptimizedPicture(${cellVar}.querySelector('img')?.src, '', false, [{ width: '750' }])`;
+    case 'aem-content':
+      return f.multi
+        ? `${indent}const ${varName} = [...${cellVar}.querySelectorAll('a')].map((a) => ({ href: a.href, text: a.textContent.trim() }));`
+        : `${indent}const ${varName}Link = ${cellVar}.querySelector('a');\n${indent}const ${varName}Href = ${varName}Link?.href || '';\n${indent}const ${varName}Text = ${varName}Link?.textContent.trim() || '';`;
+    case 'boolean':
+      return `${indent}const ${varName} = ${cellVar}.textContent.trim().toLowerCase() === 'true';`;
+    case 'number':
+      return `${indent}const ${varName} = parseFloat(${cellVar}.textContent.trim()) || 0;`;
+    case 'select':
+    case 'radio-group':
+      return `${indent}const ${varName} = ${cellVar}.textContent.trim();`;
+    case 'multiselect':
+    case 'checkbox-group':
+      return `${indent}const ${varName} = ${cellVar}.textContent.trim().split(',').map((s) => s.trim()).filter(Boolean);`;
+    case 'date-time':
+      return `${indent}const ${varName}Raw = ${cellVar}.textContent.trim();\n${indent}const ${varName} = ${varName}Raw ? new Date(${varName}Raw) : null;`;
+    case 'aem-tag':
+      return `${indent}const ${varName} = ${cellVar}.textContent.trim().split(',').map((t) => t.trim()).filter(Boolean);`;
+    case 'aem-content-fragment':
+    case 'aem-experience-fragment':
+      return `${indent}const ${varName}Ref = ${cellVar}.querySelector('a')?.href || '';`;
+    case 'container':
+      if (f.subFields?.length) {
+        const subCells = f.subFields.map((sf, si) =>
+          `${indent}  // sub-cell[${si}]: ${sf.name} (${sf.type})\n` +
+          fieldToCode(sf, `subCells[${si}]`, indent + '  ')
+        ).join('\n');
+        return `${indent}const ${varName}Cells = [...${cellVar}.children];\n${subCells}`;
+      }
+      return `${indent}const ${varName}Cells = [...${cellVar}.children];`;
+    default:
+      return `${indent}const ${varName} = ${cellVar}.textContent.trim();`;
+  }
+}
+
+// ─── JS template — simple block ───────────────────────────────────────────────
+function genSimpleBlockJS(blockName, fields) {
+  const title     = toTitleCase(blockName);
+  const hasMedia  = fields.some((f) => f.type === 'reference');
+  const mediaImp  = hasMedia ? `import { createOptimizedPicture } from '../../scripts/aem.js';\n\n` : '';
+
+  // Generate per-row read code
+  const rowReads = fields.map((f, i) => {
+    const lines = [
+      `  // ── row[${i}]: ${f.label} (${f.type}${f.multi ? ', multi' : ''}) ─────────`,
+      `  const cell${i} = rows[${i}]?.children[0];`,
+      `  if (cell${i}) {`,
+      fieldToCode(f, `cell${i}`, '    '),
+      `    // TODO: use ${f.name} here`,
+      `  }`,
+    ];
+    return lines.join('\n');
+  }).join('\n\n');
+
+  const mediaOpt = hasMedia ? `
+  // Optimise all images
+  block.querySelectorAll('img').forEach((img) => {
+    const pic = createOptimizedPicture(img.src, img.alt, false, [{ width: '750' }]);
+    img.closest('picture')?.replaceWith(pic);
+  });
+` : '';
+
+  return `${mediaImp}/**
+ * ${title} Block
+ *
+ * @param {HTMLElement} block
+ */
+export default function decorate(block) {
+  const rows = [...block.children];
+${mediaOpt}
+${rowReads}
+
+  block.classList.add('${blockName}--loaded');
+}
+`;
+}
+
+// ─── JS template — container block ───────────────────────────────────────────
+function genContainerBlockJS(blockName, childName, parentFields, childFields) {
+  const title     = toTitleCase(blockName);
+  const childTitle = toTitleCase(childName);
+  const hasMedia  = childFields.some((f) => f.type === 'reference');
+  const mediaImp  = hasMedia ? `import { createOptimizedPicture } from '../../scripts/aem.js';\n\n` : '';
+
+  // Parent config reads
+  const configReads = parentFields.map((f, i) => {
+    return [
+      `  // config[${i}]: ${f.label} (${f.type})`,
+      `  const cfg${i} = configCells[${i}];`,
+      `  if (cfg${i}) {`,
+      fieldToCode(f, `cfg${i}`, '    '),
+      `    // TODO: use ${f.name}`,
+      `  }`,
+    ].join('\n');
+  }).join('\n\n');
+
+  // Child item reads
+  const itemReads = childFields.map((f, i) => {
+    return [
+      `    // cell[${i}]: ${f.label} (${f.type}${f.multi ? ', multi' : ''})`,
+      fieldToCode(f, `cells[${i}]`, '    '),
+      `    // TODO: use ${f.name}`,
+    ].join('\n');
+  }).join('\n\n');
+
+  const mediaOpt = hasMedia ? `
+    // Optimise images
+    item.querySelectorAll('img').forEach((img) => {
+      const pic = createOptimizedPicture(img.src, img.alt, false, [{ width: '750' }]);
+      img.closest('picture')?.replaceWith(pic);
+    });
+` : '';
+
+  return `${mediaImp}/**
  * ${title} Block — container block
- *
- * Structure produced by EDS from authored content:
- *   block
- *     ├── row 0   = block config (parent fields)
-${parentComments}
- *     ├── row 1   = ${childTitle} item
- *     ├── row 2   = ${childTitle} item
- *     └── row N   = ${childTitle} item
- *
- * Each ${childTitle} row cells:
-${childComments}
+ * Each child row is a ${childTitle}.
  *
  * @param {HTMLElement} block
  */
 export default function decorate(block) {
   const [configRow, ...itemRows] = [...block.children];
 
-  // ── Read parent config ──────────────────────────────────────────
-  // const configCells = [...configRow.children];
-  // Example: const autoplay = configCells[0]?.textContent.trim() === 'true';
+  // ── Parent config ────────────────────────────────────────────────
+  const configCells = [...(configRow?.children || [])];
 
-  // ── Build item list ─────────────────────────────────────────────
-  const items = itemRows.map((row) => {
-    row.classList.add('${blockName}__item');
-    const cells = [...row.children];
-${mediaHint}
-    // TODO: read cells and build your slide UI
-    // Example:
-    // const [imageCell, ctaCell] = cells;
-    // const picture = imageCell.querySelector('picture');
-    // const cta     = ctaCell.querySelector('a');
+${configReads}
 
-    return row;
+  // ── Child items (${childTitle}) ──────────────────────────────────
+  itemRows.forEach((item, index) => {
+    item.classList.add('${blockName}__item');
+    item.dataset.index = index;
+    const cells = [...item.children];
+${mediaOpt}
+${itemReads}
+
+    // TODO: build and append your item UI here
   });
-
-  // ── Render carousel ─────────────────────────────────────────────
-  // TODO: wrap items, add controls (prev/next/dots), init autoplay etc.
 
   block.classList.add('${blockName}--loaded');
 }
@@ -49,158 +324,399 @@ ${mediaHint}
 // ─── CSS template ─────────────────────────────────────────────────────────────
 function genBlockCSS(blockName, isContainer) {
   const s = `.${blockName}`;
-  const itemCSS = isContainer ? `\n${s}__item {\n  /* Each child item (slide) */\n}\n` : '';
+  const itemCSS = isContainer ? `\n${s}__item {\n  /* Each child item */\n}\n` : '';
+  return `/* ── ${toTitleCase(blockName)} ─────────────────────────────────────────── */
 
-  return `/* ── ${toTitleCase(blockName)} ──────────────────────────────────────────── */
+${s}-wrapper { /* Outer wrapper added by EDS */ }
 
-${s}-wrapper {
-  /* Outer wrapper added by EDS */
-}
+${s} { display: block; }
 
-${s} {
-  display: block;
-}
+${s} > div { /* Each authored row */ }
 
-${s} > div {
-  /* Each authored row */
-}
-
-${s} > div > div {
-  /* Each cell within a row */
-}
+${s} > div > div { /* Each cell within a row */ }
 ${itemCSS}
 /* ── Variants ──────────────────────────────────────────────────────── */
-
-${s}.${blockName}--dark {
-  /* e.g. "Carousel (dark)" in document */
-}
+${s}.${blockName}--dark { /* e.g. "${toTitleCase(blockName)} (dark)" in document */ }
 `;
 }
 
-// ─── component-models.json ────────────────────────────────────────────────────
-function updateComponentModels(cwd, blockName, parentFields, isContainer, childName, childFields) {
-  const filePath = path.join(cwd, 'component-models.json');
-  let models = readJSON(filePath) || [];
+// ─── README template ──────────────────────────────────────────────────────────
+function genReadme(blockName, isContainer, parentFields, childName, childFields) {
+  const title = toTitleCase(blockName);
 
-  // Parent model
-  if (models.find((m) => m.id === blockName)) {
-    log.warn(`component-models.json already has "${blockName}" — skipping.`);
-  } else {
-    const parentSchema = buildFieldSchema(parentFields);
+  // Authoring table
+  const buildTable = (fields, heading) => {
+    const rows = fields.map((f) => {
+      const multi   = f.multi ? ' *(multi)*' : '';
+      const req     = f.required ? ' *(required)*' : '';
+      const opts    = f.options?.length
+        ? f.options.map((o) => `\`${o.value}\``).join(', ')
+        : '—';
+      const defVal  = f.defaultValue !== undefined ? `\`${f.defaultValue}\`` : '—';
+      return `| ${f.label}${req} | \`${f.type}\`${multi} | ${f.name} | ${opts} | ${defVal} |`;
+    }).join('\n');
+    return `### ${heading}\n\n| Label | Type | Property | Options | Default |\n|---|---|---|---|---|\n${rows}`;
+  };
 
-    // Always add a classes field to container blocks for variant support
-    if (isContainer) {
-      parentSchema.push({
-        component: 'text',
-        name: 'classes',
-        label: 'Variants (comma-separated)',
-        valueType: 'string',
-        value: '',
-      });
-    }
+  const fieldTables = isContainer
+    ? `${buildTable(parentFields, 'Parent block fields (config)')}\n\n${buildTable(childFields, `Child item fields (${toTitleCase(childName)})`)}`
+    : buildTable(parentFields, 'Fields');
 
-    models.push({ id: blockName, fields: parentSchema });
-    log.success(`Updated  component-models.json  (+1 parent model: "${blockName}")`);
-  }
+  // Authoring structure diagram
+  const authoringDiagram = isContainer
+    ? `\`\`\`
+| ${title}        |
+|:----------------|
+| (config fields) |
 
-  // Child model (container only)
-  if (isContainer) {
-    const childId = childName;
-    if (models.find((m) => m.id === childId)) {
-      log.warn(`component-models.json already has "${childId}" — skipping.`);
-    } else {
-      models.push({ id: childId, fields: buildFieldSchema(childFields) });
-      log.success(`Updated  component-models.json  (+1 child model: "${childId}")`);
-    }
-  }
+Then one row per ${toTitleCase(childName)}:
 
-  writeJSON(filePath, models);
+| ${childFields.map((f) => f.label).join(' | ')} |
+|${childFields.map(() => ':---').join('|')}|
+| value           |
+\`\`\``
+    : `\`\`\`
+| ${title}   |
+|:-----------|
+${parentFields.map((f) => `| ${f.label} |`).join('\n')}
+\`\`\``;
+
+  return `# ${title} Block
+
+${isContainer ? `Container block — holds repeating **${toTitleCase(childName)}** child items.` : 'Simple block with fixed authored rows.'}
+
+---
+
+## Authoring (document-based)
+
+Create a table in Google Doc or SharePoint:
+
+${authoringDiagram}
+
+---
+
+## Universal Editor fields
+
+${fieldTables}
+
+---
+
+## Variants
+
+Add variant names inside parentheses in the block name, e.g. **${title} (dark)**.
+
+| Variant | CSS class |
+|---|---|
+| dark | \`.${blockName}--dark\` |
+
+---
+
+## Local development
+
+\`\`\`bash
+aem up
+# open http://localhost:3000
+\`\`\`
+
+## Files
+
+\`\`\`
+blocks/${blockName}/
+  ${blockName}.js     ← decoration logic
+  ${blockName}.css    ← styles
+  README.md           ← this file
+\`\`\`
+`;
 }
 
-// ─── component-definitions.json ───────────────────────────────────────────────
-function updateComponentDefinitions(cwd, blockName, isContainer, childName, defaultItems) {
-  const filePath = path.join(cwd, 'component-definitions.json');
-  let defs = readJSON(filePath) || { groups: [] };
-  if (!Array.isArray(defs.groups)) defs.groups = [];
+// ─── Options builder (select / multiselect / radio-group / checkbox-group) ────
+async function collectOptions(rl, fieldName, ind = '') {
+  const options = [];
+  log.blank();
+  log.info(`Define options for ${c.bold}${fieldName}${c.reset}. Leave name blank to finish.`);
+  log.blank();
 
-  let group = defs.groups.find((g) => g.id === 'blocks');
-  if (!group) {
-    group = { title: 'Blocks', id: 'blocks', components: [] };
-    defs.groups.push(group);
+  while (true) {
+    const name = (await prompt(rl, `${ind}  Option label (blank to finish): `)).trim();
+    if (!name) break;
+
+    // Auto-suggest a value from the label
+    const suggested = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const raw = (await prompt(rl, `${ind}  Option value [${suggested}]: `)).trim();
+    const value = raw || suggested;
+
+    options.push({ name, value });
+    log.success(`  Option added: ${c.bold}${name}${c.reset} → ${c.dim}${value}${c.reset}`);
+    log.blank();
   }
-  if (!Array.isArray(group.components)) group.components = [];
 
-  if (group.components.find((comp) => comp.id === blockName)) {
-    log.warn(`component-definitions.json already has "${blockName}" — skipping.`);
+  if (options.length === 0) {
+    options.push({ name: 'Option 1', value: 'option-1' }, { name: 'Option 2', value: 'option-2' });
+    log.warn('No options entered — added placeholders. Update them in component-models.json.');
+  }
+
+  log.info(`${options.length} option(s) defined for "${fieldName}".`);
+  log.blank();
+  return options;
+}
+
+// ─── Default value collector ──────────────────────────────────────────────────
+// Types that support a meaningful default value
+const DEFAULT_VALUE_TYPES = new Set([
+  'text', 'textarea', 'richtext', 'number', 'boolean',
+  'select', 'multiselect', 'radio-group', 'checkbox-group',
+  'date-time', 'aem-tag',
+]);
+
+async function collectDefaultValue(rl, field, ind = '') {
+  if (!DEFAULT_VALUE_TYPES.has(field.type)) return;
+
+  let hint = 'Enter to skip';
+  let question = '';
+
+  switch (field.type) {
+    case 'boolean':
+      question = `${ind}  Default value for "${field.name}" (true / false) [false]: `;
+      hint     = 'true or false';
+      break;
+    case 'number':
+      question = `${ind}  Default number for "${field.name}" (Enter to skip): `;
+      break;
+    case 'select':
+    case 'radio-group': {
+      if (field.options?.length) {
+        const opts = field.options.map((o) => `${c.cyan}${o.value}${c.reset}`).join(' | ');
+        console.log(`\n  ${c.dim}Available values: ${opts}${c.reset}`);
+      }
+      question = `${ind}  Default selected value for "${field.name}" (Enter to skip): `;
+      break;
+    }
+    case 'multiselect':
+    case 'checkbox-group': {
+      if (field.options?.length) {
+        const opts = field.options.map((o) => `${c.cyan}${o.value}${c.reset}`).join(' | ');
+        console.log(`\n  ${c.dim}Available values: ${opts}${c.reset}`);
+      }
+      question = `${ind}  Default selected values for "${field.name}" (comma-separated, Enter to skip): `;
+      break;
+    }
+    case 'date-time':
+      question = `${ind}  Default date for "${field.name}" (YYYY-MM-DD, Enter to skip): `;
+      break;
+    default:
+      question = `${ind}  Default value for "${field.name}" (Enter to skip): `;
+  }
+
+  const raw = (await prompt(rl, question)).trim();
+  if (!raw) return;
+
+  // Validate boolean
+  if (field.type === 'boolean') {
+    field.defaultValue = raw === 'true' ? 'true' : 'false';
     return;
   }
 
-  const template = {
-    name:  toTitleCase(blockName),
-    model: blockName,
-  };
+  // Validate number
+  if (field.type === 'number' && isNaN(Number(raw))) {
+    log.warn(`"${raw}" is not a valid number — skipping default.`);
+    return;
+  }
 
-  // Container: add filter + pre-populated child items
-  if (isContainer) {
-    template.filter = blockName;
-    template[':items'] = {};
-    for (let i = 1; i <= defaultItems; i++) {
-      template[':items'][`item${i}`] = {
-        name:  `${toTitleCase(childName)} ${i}`,
-        model: childName,
-      };
+  // Validate select/radio must match one of the options
+  if ((field.type === 'select' || field.type === 'radio-group') && field.options?.length) {
+    const valid = field.options.map((o) => o.value);
+    if (!valid.includes(raw)) {
+      log.warn(`"${raw}" is not one of the defined option values — skipping default.`);
+      return;
     }
   }
 
-  group.components.push({
-    title: toTitleCase(blockName),
-    id:    blockName,
-    plugins: {
-      xwalk: {
-        page: {
-          resourceType: 'core/franklin/components/block/v1/block',
-          template,
-        },
-      },
-    },
-  });
+  // Validate multiselect/checkbox — each value must match an option
+  if ((field.type === 'multiselect' || field.type === 'checkbox-group') && field.options?.length) {
+    const valid  = new Set(field.options.map((o) => o.value));
+    const parts  = raw.split(',').map((s) => s.trim()).filter(Boolean);
+    const bad    = parts.filter((p) => !valid.has(p));
+    if (bad.length) {
+      log.warn(`Unknown option value(s): ${bad.join(', ')} — skipping default.`);
+      return;
+    }
+  }
 
-  writeJSON(filePath, defs);
-  log.success(`Updated  component-definitions.json`);
+  field.defaultValue = raw;
+  log.info(`Default set: ${c.cyan}${raw}${c.reset}`);
+  log.blank();
 }
 
-// ─── component-filters.json ───────────────────────────────────────────────────
-function updateComponentFilters(cwd, blockName, isContainer, childName) {
-  const filePath = path.join(cwd, 'component-filters.json');
-  let filters = readJSON(filePath) || [];
+// ─── Optional validation prompt ───────────────────────────────────────────────
+async function collectValidation(rl, field, indent = '') {
+  const available = VALIDATIONS[field.type] || [];
+  if (!available.length) return;
+  const hasExtras = await confirm(rl, `${indent}Add validation / hints for "${field.name}"?`, false);
+  if (!hasExtras) return;
+  log.blank();
+  if (available.includes('required'))    { if (await confirm(rl, `${indent}  Required?`, false)) field.required = true; }
+  if (available.includes('readOnly'))    { if (await confirm(rl, `${indent}  Read-only?`, false)) field.readOnly = true; }
+  if (available.includes('hidden'))      { if (await confirm(rl, `${indent}  Hidden?`, false)) field.hidden = true; }
+  if (available.includes('description')) { const d = (await prompt(rl, `${indent}  Helper text (Enter to skip): `)).trim(); if (d) field.description = d; }
+  if (available.includes('minLength'))   { const v = (await prompt(rl, `${indent}  Min length (Enter to skip): `)).trim(); if (v && !isNaN(v)) field.minLength = +v; }
+  if (available.includes('maxLength'))   { const v = (await prompt(rl, `${indent}  Max length (Enter to skip): `)).trim(); if (v && !isNaN(v)) field.maxLength = +v; }
+  if (available.includes('min'))         { const v = (await prompt(rl, `${indent}  Min${field.type === 'date-time' ? ' (YYYY-MM-DD)' : ''} (Enter to skip): `)).trim(); if (v) field.min = field.type === 'number' ? +v : v; }
+  if (available.includes('max'))         { const v = (await prompt(rl, `${indent}  Max${field.type === 'date-time' ? ' (YYYY-MM-DD)' : ''} (Enter to skip): `)).trim(); if (v) field.max = field.type === 'number' ? +v : v; }
+  if (available.includes('step'))        { const v = (await prompt(rl, `${indent}  Step (Enter to skip): `)).trim(); if (v && !isNaN(v)) field.step = +v; }
+  if (available.includes('rootPath'))    { const v = (await prompt(rl, `${indent}  Root path (Enter to skip): `)).trim(); if (v) field.rootPath = v; }
+  if (available.includes('customErrorMsg')) { const v = (await prompt(rl, `${indent}  Custom error message (Enter to skip): `)).trim(); if (v) field.customErrorMsg = v; }
+  log.blank();
+}
 
-  // Allow block in sections
-  let section = filters.find((f) => f.id === 'section');
-  if (!section) {
-    section = { id: 'section', components: [] };
-    filters.push(section);
-  }
-  if (!section.components.includes(blockName)) {
-    section.components.push(blockName);
-  }
+// ─── Field collector ──────────────────────────────────────────────────────────
+async function collectFields(rl, context, depth = 0) {
+  const fields = [];
+  const ind    = depth > 0 ? '    ' : '';
+  log.info(`Define ${c.bold}${context}${c.reset} fields. Leave name blank to finish.`);
+  log.blank();
 
-  // Container: restrict what can go INSIDE the block to child items only
-  if (isContainer) {
-    if (filters.find((f) => f.id === blockName)) {
-      log.warn(`component-filters.json already has filter "${blockName}" — skipping.`);
+  while (true) {
+    const name = (await prompt(rl, `${ind}Field name (camelCase, blank to finish): `)).trim();
+    if (!name) break;
+    if (!/^[a-zA-Z][a-zA-Z0-9]*$/.test(name)) { log.warn('camelCase only — no hyphens or underscores.'); continue; }
+
+    const defLabel = toTitleCase(name.replace(/([A-Z])/g, '-$1').toLowerCase());
+    const label    = (await prompt(rl, `${ind}Label for "${name}" [${defLabel}]: `)).trim() || defLabel;
+
+    printFieldTypes();
+    const typeIn = (await prompt(rl, `${ind}Type (name or number) [text]: `)).trim();
+    let type = 'text';
+    if (typeIn) { const byNum = ALL_FIELD_KEYS[parseInt(typeIn, 10) - 1]; type = byNum || (FIELD_TYPES[typeIn] ? typeIn : 'text'); }
+
+    const field = { name, label, type };
+
+    // multi: true option for eligible types
+    if (FIELD_TYPES[type]?.multi) {
+      const isMulti = await confirm(rl, `${ind}Allow multiple values (multi: true)?`, false);
+      if (isMulti) field.multi = true;
+    }
+
+    // Options builder for select / multiselect / radio-group / checkbox-group
+    const OPTION_FIELD_TYPES = new Set(['select', 'multiselect', 'radio-group', 'checkbox-group']);
+    if (OPTION_FIELD_TYPES.has(type)) {
+      field.options = await collectOptions(rl, name, ind);
+    }
+
+    // Default value
+    await collectDefaultValue(rl, field, ind);
+
+    // Container — collect sub-fields
+    if (type === 'container') {
+      if (depth >= 1) {
+        log.warn('UE does not support nested containers — skipping sub-fields.');
+        field.subFields = [];
+      } else {
+        log.blank();
+        console.log(`  ${c.cyan}  ┌─ Container "${name}" — define sub-fields ─────────────────${c.reset}`);
+        field.subFields = await collectFields(rl, `${name} sub-fields`, depth + 1);
+        console.log(`  ${c.cyan}  └─ End of "${name}" ──────────────────────────────────────────${c.reset}`);
+        log.blank();
+      }
+    }
+
+    // Optional validation
+    await collectValidation(rl, field, ind);
+
+    fields.push(field);
+
+    // Summary
+    const extras = [
+      field.multi         && 'multi',
+      field.required      && 'required',
+      field.readOnly      && 'readOnly',
+      field.hidden        && 'hidden',
+      field.options       && `${field.options.length} options`,
+      field.defaultValue  !== undefined && `default:"${field.defaultValue}"`,
+      field.minLength     !== undefined && `minLen:${field.minLength}`,
+      field.maxLength     !== undefined && `maxLen:${field.maxLength}`,
+      field.min           !== undefined && `min:${field.min}`,
+      field.max           !== undefined && `max:${field.max}`,
+      field.step          !== undefined && `step:${field.step}`,
+      field.rootPath      && `rootPath:${field.rootPath}`,
+      field.description   && `hint:"${field.description}"`,
+    ].filter(Boolean);
+
+    if (type === 'container') {
+      log.success(`Added: ${c.bold}${name}${c.reset}  container  sub-fields: ${c.dim}${(field.subFields||[]).map((s)=>s.name).join(', ')||'none'}${c.reset}`);
     } else {
-      filters.push({ id: blockName, components: [childName] });
+      log.success(`Added: ${c.bold}${name}${c.reset}  ${c.cyan}${type}${c.reset}${extras.length ? `  ${c.yellow}[${extras.join(', ')}]${c.reset}` : ''}`);
     }
+    log.blank();
   }
 
-  writeJSON(filePath, filters);
-  log.success(`Updated  component-filters.json`);
+  if (!fields.length && depth === 0) { fields.push({ name: 'text', label: 'Text', type: 'text' }); log.warn('No fields — defaulted to a single "text" field.'); }
+  return fields;
 }
 
-// ─── Write block files ────────────────────────────────────────────────────────
-function writeBlockFile(filePath, content, label) {
-  if (fs.existsSync(filePath)) {
-    log.warn(`${label} already exists — skipped.`);
+// ─── JSON updaters ─────────────────────────────────────────────────────────────
+function updateModels(cwd, blockName, parentFields, isContainer, childName, childFields, dryRun) {
+  const fp = path.join(cwd, 'component-models.json');
+  let models = readJSON(fp) || [];
+
+  if (models.find((m) => m.id === blockName)) { log.warn(`component-models.json already has "${blockName}" — skipping.`); }
+  else {
+    const schema = buildFieldSchema(parentFields);
+    if (isContainer) schema.push({ component: 'text', name: 'classes', label: 'Variants (comma-separated)', valueType: 'string', value: '' });
+    models.push({ id: blockName, fields: schema });
+    dryRun ? log.dry(`Would add model "${blockName}" to component-models.json`) : log.success(`Updated  component-models.json  (+parent model: "${blockName}")`);
+  }
+
+  if (isContainer) {
+    if (models.find((m) => m.id === childName)) { log.warn(`component-models.json already has "${childName}" — skipping.`); }
+    else {
+      models.push({ id: childName, fields: buildFieldSchema(childFields) });
+      dryRun ? log.dry(`Would add model "${childName}" to component-models.json`) : log.success(`Updated  component-models.json  (+child model: "${childName}")`);
+    }
+  }
+  if (!dryRun) writeJSON(fp, models);
+}
+
+function updateDefinitions(cwd, blockName, isContainer, childName, defaultItems, dryRun) {
+  const fp   = path.join(cwd, 'component-definitions.json');
+  let defs   = readJSON(fp) || { groups: [] };
+  if (!Array.isArray(defs.groups)) defs.groups = [];
+  let group  = defs.groups.find((g) => g.id === 'blocks');
+  if (!group) { group = { title: 'Blocks', id: 'blocks', components: [] }; defs.groups.push(group); }
+  if (!Array.isArray(group.components)) group.components = [];
+  if (group.components.find((comp) => comp.id === blockName)) { log.warn(`component-definitions.json already has "${blockName}" — skipping.`); return; }
+
+  const template = { name: toTitleCase(blockName), model: blockName };
+  if (isContainer) {
+    template.filter    = blockName;
+    template[':items'] = {};
+    for (let i = 1; i <= defaultItems; i++) template[':items'][`item${i}`] = { name: `${toTitleCase(childName)} ${i}`, model: childName };
+  }
+  group.components.push({ title: toTitleCase(blockName), id: blockName, plugins: { xwalk: { page: { resourceType: 'core/franklin/components/block/v1/block', template } } } });
+  dryRun ? log.dry(`Would register "${blockName}" in component-definitions.json`) : (writeJSON(fp, defs), log.success(`Updated  component-definitions.json`));
+}
+
+function updateFilters(cwd, blockName, isContainer, childName, dryRun) {
+  const fp      = path.join(cwd, 'component-filters.json');
+  let filters   = readJSON(fp) || [];
+  let section   = filters.find((f) => f.id === 'section');
+  if (!section) { section = { id: 'section', components: [] }; filters.push(section); }
+  if (!section.components.includes(blockName)) section.components.push(blockName);
+  if (isContainer) {
+    if (!filters.find((f) => f.id === blockName)) filters.push({ id: blockName, components: [childName] });
+    else log.warn(`component-filters.json already has filter "${blockName}" — skipping.`);
+  }
+  dryRun ? log.dry(`Would update component-filters.json`) : (writeJSON(fp, filters), log.success(`Updated  component-filters.json`));
+}
+
+// ─── File writer (dry-run aware) ──────────────────────────────────────────────
+function writeFile(filePath, content, label, dryRun) {
+  if (!dryRun && fs.existsSync(filePath)) { log.warn(`${label} already exists — skipped.`); return; }
+  if (dryRun) {
+    log.dry(`Would create: ${label}`);
+    console.log(`\n${c.dim}${'─'.repeat(60)}${c.reset}`);
+    content.split('\n').slice(0, 20).forEach((l) => console.log(`  ${c.dim}${l}${c.reset}`));
+    if (content.split('\n').length > 20) console.log(`  ${c.dim}... (${content.split('\n').length - 20} more lines)${c.reset}`);
+    console.log(`${c.dim}${'─'.repeat(60)}${c.reset}\n`);
     return;
   }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -208,134 +724,250 @@ function writeBlockFile(filePath, content, label) {
   log.success(`Created  ${label}`);
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
-async function main() {
-  log.title('AEM EDS Block Scaffolder');
+// ══════════════════════════════════════════════════════════════════════════════
+// COMMAND: create
+// ══════════════════════════════════════════════════════════════════════════════
+async function cmdCreate(rl, cwd, argName, dryRun) {
+  if (dryRun) log.warn('DRY RUN — no files will be written.\n');
 
-  const rl  = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const cwd = process.cwd();
-
-  process.on('SIGINT', () => {
-    log.blank();
-    log.info('Cancelled.');
-    rl.close();
-    process.exit(0);
-  });
-
-  // ── 1. Block name ────────────────────────────────────────────────────────────
-  let blockName = process.argv[2]?.trim().toLowerCase().replace(/\s+/g, '-');
+  let blockName = argName;
   if (!blockName) {
-    blockName = (await prompt(rl, `Block name (kebab-case, e.g. card-carousel): `))
-      .trim().toLowerCase().replace(/\s+/g, '-');
+    blockName = (await prompt(rl, `Block name (kebab-case): `)).trim().toLowerCase().replace(/\s+/g, '-');
   }
-
-  if (!blockName || !isValidBlockName(blockName)) {
-    log.error('Invalid block name. Use lowercase letters, digits, and hyphens only.');
-    rl.close();
-    process.exit(1);
-  }
+  if (!blockName || !isValidName(blockName)) { log.error('Invalid block name.'); rl.close(); process.exit(1); }
 
   log.divider();
-  log.info(`Block name      : ${c.bold}${blockName}${c.reset}`);
-  log.info(`Working directory: ${c.dim}${cwd}${c.reset}`);
+  log.info(`Block: ${c.bold}${blockName}${c.reset}`);
+  log.info(`Dir  : ${c.dim}${cwd}${c.reset}`);
   log.divider();
 
-  // ── 2. Block type ────────────────────────────────────────────────────────────
+  // Block type
   log.blank();
   console.log(`  ${c.bold}Block type:${c.reset}`);
-  console.log(`    ${c.dim}1.${c.reset} ${c.cyan}Simple${c.reset}     ${c.dim}Fixed rows — hero, banner, teaser, quote${c.reset}`);
+  console.log(`    ${c.dim}1.${c.reset} ${c.cyan}Simple${c.reset}     ${c.dim}Fixed rows — hero, banner, teaser${c.reset}`);
   console.log(`    ${c.dim}2.${c.reset} ${c.cyan}Container${c.reset}  ${c.dim}Repeating children — carousel, cards, accordion${c.reset}`);
   log.blank();
   const typeIn = (await prompt(rl, `Type [1]: `)).trim();
   const isContainer = typeIn === '2' || typeIn.toLowerCase() === 'container';
   log.blank();
 
-  // ── 3. Parent fields ─────────────────────────────────────────────────────────
-  log.section(isContainer ? `Phase 1 — Parent block fields (${blockName} config)` : `Define block fields`);
+  // Parent fields
+  log.section(isContainer ? `Phase 1 — Parent config fields` : `Define block fields`);
   const parentFields = await collectFields(rl, isContainer ? `${blockName} config` : blockName);
 
-  // ── 4. Container: child name + child fields + default item count ─────────────
-  let childName    = '';
-  let childFields  = [];
-  let defaultItems = 3;
-
+  // Container: child setup
+  let childName = '', childFields = [], defaultItems = 3;
   if (isContainer) {
-    log.blank();
     log.divider();
     log.section(`Phase 2 — Child item`);
-
-    // Child block name
-    const suggestedChild = `${blockName}-item`;
-    const childIn = (await prompt(rl, `Child item name [${suggestedChild}]: `)).trim().toLowerCase().replace(/\s+/g, '-');
-    childName = childIn || suggestedChild;
-
-    if (!isValidBlockName(childName)) {
-      log.error(`Invalid child name "${childName}".`);
-      rl.close();
-      process.exit(1);
-    }
-
+    const sugg   = `${blockName}-item`;
+    const childIn = (await prompt(rl, `Child item name [${sugg}]: `)).trim().toLowerCase().replace(/\s+/g, '-');
+    childName    = childIn || sugg;
+    if (!isValidName(childName)) { log.error(`Invalid child name.`); rl.close(); process.exit(1); }
     log.blank();
-    log.info(`Child item: ${c.bold}${childName}${c.reset}`);
+    log.info(`Child: ${c.bold}${childName}${c.reset}`);
     log.blank();
-
-    // Child fields
-    childFields = await collectFields(rl, `${childName} (child item)`);
-
-    // Default pre-populated items
+    childFields  = await collectFields(rl, `${childName} fields`);
     log.blank();
-    const defIn = (await prompt(rl, `How many default items to pre-populate in UE? [3]: `)).trim();
-    defaultItems = parseInt(defIn, 10) || 3;
-    if (defaultItems < 1) defaultItems = 1;
-    if (defaultItems > 10) defaultItems = 10;
+    const defIn  = (await prompt(rl, `Default items to pre-populate in UE? [3]: `)).trim();
+    defaultItems = Math.min(Math.max(parseInt(defIn, 10) || 3, 1), 10);
   }
 
   rl.close();
 
-  // ── 5. Write files ───────────────────────────────────────────────────────────
-  log.blank();
-  log.divider();
-  log.blank();
+  // Write everything
+  log.blank(); log.divider(); log.blank();
 
-  const blockDir = path.join(cwd, 'blocks', blockName);
-
+  const dir       = path.join(cwd, 'blocks', blockName);
   const jsContent = isContainer
     ? genContainerBlockJS(blockName, childName, parentFields, childFields)
     : genSimpleBlockJS(blockName, parentFields);
 
-  writeBlockFile(path.join(blockDir, `${blockName}.js`),  jsContent,                    `blocks/${blockName}/${blockName}.js`);
-  writeBlockFile(path.join(blockDir, `${blockName}.css`), genBlockCSS(blockName, isContainer), `blocks/${blockName}/${blockName}.css`);
+  writeFile(path.join(dir, `${blockName}.js`),  jsContent,                              `blocks/${blockName}/${blockName}.js`,   dryRun);
+  writeFile(path.join(dir, `${blockName}.css`), genBlockCSS(blockName, isContainer),    `blocks/${blockName}/${blockName}.css`,  dryRun);
+  writeFile(path.join(dir, 'README.md'),        genReadme(blockName, isContainer, parentFields, childName, childFields), `blocks/${blockName}/README.md`, dryRun);
 
-  // ── 6. Update UE JSON files ──────────────────────────────────────────────────
-  updateComponentModels(cwd, blockName, parentFields, isContainer, childName, childFields);
-  updateComponentDefinitions(cwd, blockName, isContainer, childName, defaultItems);
-  updateComponentFilters(cwd, blockName, isContainer, childName);
+  updateModels(cwd, blockName, parentFields, isContainer, childName, childFields, dryRun);
+  updateDefinitions(cwd, blockName, isContainer, childName, defaultItems, dryRun);
+  updateFilters(cwd, blockName, isContainer, childName, dryRun);
 
-  // ── 7. Summary ───────────────────────────────────────────────────────────────
-  log.blank();
-  log.divider();
-  console.log(`\n  ${c.bold}${c.green}✔ "${blockName}" scaffolded! ${isContainer ? `(container → ${defaultItems} default ${childName} items)` : '(simple)'}${c.reset}\n`);
-
-  console.log(`  ${c.dim}Files:${c.reset}`);
-  console.log(`    ${c.cyan}blocks/${blockName}/${blockName}.js${c.reset}`);
-  console.log(`    ${c.cyan}blocks/${blockName}/${blockName}.css${c.reset}`);
-  if (isContainer) {
-    console.log(`\n  ${c.dim}Models registered:${c.reset}`);
-    console.log(`    ${c.cyan}${blockName}${c.reset}       ${c.dim}(parent — ${parentFields.length} field${parentFields.length > 1 ? 's' : ''})${c.reset}`);
-    console.log(`    ${c.cyan}${childName}${c.reset}  ${c.dim}(child  — ${childFields.length} field${childFields.length > 1 ? 's' : ''})${c.reset}`);
-    console.log(`\n  ${c.dim}Filters:${c.reset}`);
-    console.log(`    ${c.cyan}section${c.reset}       ${c.dim}→ allows ${blockName}${c.reset}`);
-    console.log(`    ${c.cyan}${blockName}${c.reset}  ${c.dim}→ allows only ${childName} inside${c.reset}`);
+  // Summary
+  log.blank(); log.divider();
+  const prefix = dryRun ? `${c.yellow}~ DRY RUN${c.reset} ` : `${c.green}✔${c.reset} `;
+  console.log(`\n  ${prefix}${c.bold}"${blockName}" ${dryRun ? 'would be' : 'scaffolded!'} ${isContainer ? `(container → ${defaultItems}x ${childName})` : '(simple)'}${c.reset}\n`);
+  if (!dryRun) {
+    console.log(`  ${c.dim}Next steps:${c.reset}`);
+    console.log(`    1. ${c.bold}aem up${c.reset} → http://localhost:3000`);
+    console.log(`    2. Add block in Universal Editor`);
+    console.log(`    3. Implement ${c.bold}blocks/${blockName}/${blockName}.js${c.reset}`);
+    console.log(`    4. Style  ${c.bold}blocks/${blockName}/${blockName}.css${c.reset}\n`);
   }
-
-  console.log(`\n  ${c.dim}Next steps:${c.reset}`);
-  console.log(`    1. Run ${c.bold}aem up${c.reset} and open ${c.bold}http://localhost:3000${c.reset}`);
-  console.log(`    2. Add the block in Universal Editor — ${defaultItems} ${isContainer ? childName + ' items' : 'fields'} are pre-populated`);
-  console.log(`    3. Implement decoration logic in ${c.bold}blocks/${blockName}/${blockName}.js${c.reset}`);
-  console.log(`    4. Style in ${c.bold}blocks/${blockName}/${blockName}.css${c.reset}\n`);
 }
 
-main().catch((err) => {
-  log.error(err.message);
-  process.exit(1);
-});
+// ══════════════════════════════════════════════════════════════════════════════
+// COMMAND: remove
+// ══════════════════════════════════════════════════════════════════════════════
+async function cmdRemove(rl, cwd, blockName, dryRun) {
+  log.title('Remove Block');
+  if (!blockName) { blockName = (await prompt(rl, `Block name to remove: `)).trim().toLowerCase(); }
+  if (!isValidName(blockName)) { log.error('Invalid block name.'); rl.close(); process.exit(1); }
+
+  const blockDir = path.join(cwd, 'blocks', blockName);
+  if (!fs.existsSync(blockDir)) { log.error(`blocks/${blockName}/ does not exist.`); rl.close(); process.exit(1); }
+
+  if (!dryRun) {
+    log.warn(`This will delete blocks/${blockName}/ and remove all UE JSON entries.`);
+    const ok = await confirm(rl, 'Are you sure?', false);
+    if (!ok) { log.info('Cancelled.'); rl.close(); return; }
+  }
+
+  rl.close();
+  log.divider();
+
+  // Remove block directory
+  if (dryRun) { log.dry(`Would delete blocks/${blockName}/`); }
+  else { fs.rmSync(blockDir, { recursive: true, force: true }); log.success(`Deleted  blocks/${blockName}/`); }
+
+  // Clean component-models.json
+  const modelsPath = path.join(cwd, 'component-models.json');
+  let models = readJSON(modelsPath);
+  if (models) {
+    const before = models.length;
+    models = models.filter((m) => m.id !== blockName && m.id !== `${blockName}-item`);
+    if (dryRun) log.dry(`Would remove ${before - models.length} model(s) from component-models.json`);
+    else { writeJSON(modelsPath, models); log.success(`Updated  component-models.json  (removed ${before - models.length} model(s))`); }
+  }
+
+  // Clean component-definitions.json
+  const defsPath = path.join(cwd, 'component-definitions.json');
+  let defs = readJSON(defsPath);
+  if (defs) {
+    let removed = 0;
+    (defs.groups || []).forEach((g) => {
+      const before = (g.components || []).length;
+      g.components = (g.components || []).filter((comp) => comp.id !== blockName);
+      removed += before - g.components.length;
+    });
+    if (dryRun) log.dry(`Would remove "${blockName}" from component-definitions.json`);
+    else { writeJSON(defsPath, defs); log.success(`Updated  component-definitions.json  (removed ${removed} entry)`); }
+  }
+
+  // Clean component-filters.json
+  const filtersPath = path.join(cwd, 'component-filters.json');
+  let filters = readJSON(filtersPath);
+  if (filters) {
+    filters = filters.filter((f) => f.id !== blockName);
+    filters.forEach((f) => { if (Array.isArray(f.components)) f.components = f.components.filter((comp) => comp !== blockName && comp !== `${blockName}-item`); });
+    if (dryRun) log.dry(`Would update component-filters.json`);
+    else { writeJSON(filtersPath, filters); log.success(`Updated  component-filters.json`); }
+  }
+
+  log.blank();
+  dryRun ? log.dry(`Dry run complete — nothing was deleted.`) : log.success(`"${blockName}" removed successfully.`);
+  log.blank();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// COMMAND: list
+// ══════════════════════════════════════════════════════════════════════════════
+function cmdList(cwd) {
+  log.title('Block Inventory');
+
+  const blocksDir = path.join(cwd, 'blocks');
+  if (!fs.existsSync(blocksDir)) { log.warn('No blocks/ directory found.'); return; }
+
+  const models    = readJSON(path.join(cwd, 'component-models.json')) || [];
+  const defs      = readJSON(path.join(cwd, 'component-definitions.json'));
+  const filters   = readJSON(path.join(cwd, 'component-filters.json')) || [];
+
+  const modelIds  = new Set(models.map((m) => m.id));
+  const defIds    = new Set((defs?.groups || []).flatMap((g) => (g.components || []).map((comp) => comp.id)));
+  const filterIds = new Set(filters.flatMap((f) => f.components || []));
+
+  const blocks = fs.readdirSync(blocksDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name);
+
+  if (!blocks.length) { log.info('No blocks found.'); return; }
+
+  // Header
+  console.log(`\n  ${c.bold}${col('Block', 26)} JS   CSS  Model  Def   Filter  README${c.reset}`);
+  log.divider();
+
+  let issues = 0;
+  blocks.forEach((name) => {
+    const dir      = path.join(blocksDir, name);
+    const hasJS    = fs.existsSync(path.join(dir, `${name}.js`));
+    const hasCSS   = fs.existsSync(path.join(dir, `${name}.css`));
+    const hasModel = modelIds.has(name);
+    const hasDef   = defIds.has(name);
+    const hasFilt  = filterIds.has(name);
+    const hasRM    = fs.existsSync(path.join(dir, 'README.md'));
+    const allGood  = hasJS && hasCSS && hasModel && hasDef;
+    if (!allGood) issues++;
+    const nameColor = allGood ? c.reset : c.yellow;
+    console.log(`  ${nameColor}${col(name, 26)}${c.reset} ${tick(hasJS)}    ${tick(hasCSS)}   ${tick(hasModel)}     ${tick(hasDef)}    ${tick(hasFilt)}      ${tick(hasRM)}`);
+  });
+
+  log.blank();
+  log.info(`${blocks.length} block(s) found${issues ? `  ${c.yellow}(${issues} with issues)${c.reset}` : `  ${c.green}(all clean)${c.reset}`}`);
+  log.blank();
+}
+
+// ─── Help ──────────────────────────────────────────────────────────────────────
+function printHelp() {
+  console.log(`
+  ${c.bold}${c.cyan}AEM EDS Block Scaffolder${c.reset}
+
+  ${c.bold}Usage:${c.reset}
+    npx eds-block-scaffold <command> [block-name] [flags]
+
+  ${c.bold}Commands:${c.reset}
+    ${c.cyan}create${c.reset} [name]   Scaffold a new block  ${c.dim}(default if no command given)${c.reset}
+    ${c.cyan}remove${c.reset} <name>   Delete block + remove from all UE JSON files
+    ${c.cyan}list${c.reset}            Show all blocks with file & authoring status
+
+  ${c.bold}Flags:${c.reset}
+    ${c.cyan}--dry-run${c.reset}       Preview what would be generated without writing files
+
+  ${c.bold}Examples:${c.reset}
+    npx eds-block-scaffold create
+    npx eds-block-scaffold create carousel
+    npx eds-block-scaffold create carousel --dry-run
+    npx eds-block-scaffold remove old-block
+    npx eds-block-scaffold list
+`);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ENTRY POINT
+// ══════════════════════════════════════════════════════════════════════════════
+async function main() {
+  const args    = process.argv.slice(2);
+  const dryRun  = args.includes('--dry-run');
+  const cleaned = args.filter((a) => !a.startsWith('--'));
+  const cmd     = cleaned[0] || 'create';
+  const arg1    = cleaned[1] || '';
+  const cwd     = process.cwd();
+
+  if (cmd === 'help' || cmd === '--help' || cmd === '-h') { printHelp(); process.exit(0); }
+
+  log.title('AEM EDS Block Scaffolder');
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  process.on('SIGINT', () => { log.blank(); log.info('Cancelled.'); rl.close(); process.exit(0); });
+
+  if (cmd === 'list') { rl.close(); cmdList(cwd); }
+  else if (cmd === 'remove' || cmd === 'delete') { await cmdRemove(rl, cwd, arg1, dryRun); }
+  else if (cmd === 'create' || isValidName(cmd)) {
+    const blockName = isValidName(cmd) && cmd !== 'create' ? cmd : arg1;
+    await cmdCreate(rl, cwd, blockName, dryRun);
+  } else {
+    log.error(`Unknown command: "${cmd}"`);
+    printHelp();
+    rl.close();
+    process.exit(1);
+  }
+}
+
+main().catch((err) => { log.error(err.message); process.exit(1); });
