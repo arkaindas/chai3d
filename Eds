@@ -545,17 +545,7 @@ function genBlockJSON(blockName, isContainer, parentFields, childName, childFiel
   const template = { name: toTitleCase(blockName), model: blockName };
   if (isContainer) {
     template.filter = blockName;
-    // Only pre-populate :items when defaultItems > 0
-    // Set to 0 to avoid 409 JCR conflict on first UE insert
-    if (defaultItems > 0) {
-      template[':items'] = {};
-      for (let i = 1; i <= defaultItems; i++) {
-        template[':items'][`item${i}`] = {
-          name:  `${toTitleCase(childName)} ${i}`,
-          model: childName,
-        };
-      }
-    }
+    // No :items — pre-population causes 409 JCR conflict on insert
   }
 
   const definitions = [{
@@ -570,6 +560,27 @@ function genBlockJSON(blockName, isContainer, parentFields, childName, childFiel
       },
     },
   }];
+
+  // Container blocks need a SECOND definition for the child item
+  // with resourceType block/item — this is what UE uses when author
+  // clicks + inside the block to add a child
+  if (isContainer) {
+    definitions.push({
+      title: toTitleCase(childName),
+      id:    childName,
+      plugins: {
+        xwalk: {
+          page: {
+            resourceType: 'core/franklin/components/block/v1/block/item',
+            template: {
+              name:  toTitleCase(childName),
+              model: childName,
+            },
+          },
+        },
+      },
+    });
+  }
 
   // ── filters ──────────────────────────────────────────────────────────────────
   // section entry  → allows this block to be placed inside a page section (REQUIRED for UE picker)
