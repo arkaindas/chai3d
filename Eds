@@ -68,7 +68,6 @@ const FIELD_TYPES = {
   'radio-group':             { label: 'Radio buttons — single value',    valueType: 'string',   multi: false },
   'checkbox-group':          { label: 'Checkboxes — multiple values',    valueType: 'string[]', multi: false },
   number:                    { label: 'Number input',                    valueType: 'number',   multi: false },
-  'date-time':               { label: 'Date / time picker',             valueType: 'date',     multi: false },
   'aem-tag':                 { label: 'AEM Tag picker (cq:tags)',        valueType: 'string',   multi: false },
   container:                 { label: 'Grouped / repeating field set',   valueType: 'string',   multi: false },
   tab:                       { label: 'Tab — organises fields in panel', valueType: null,       multi: false },
@@ -78,7 +77,7 @@ const FIELD_GROUPS = [
   { title: 'Text inputs',         keys: ['text', 'textarea', 'richtext'] },
   { title: 'Media & references',  keys: ['reference', 'aem-content', 'aem-content-fragment', 'aem-experience-fragment'] },
   { title: 'Selection & toggles', keys: ['boolean', 'select', 'multiselect', 'radio-group', 'checkbox-group'] },
-  { title: 'Specialised',         keys: ['number', 'date-time', 'aem-tag'] },
+  { title: 'Specialised',         keys: ['number', 'aem-tag'] },
   { title: 'Layout (no value)',   keys: ['container', 'tab'] },
 ];
 
@@ -114,7 +113,6 @@ const VALIDATIONS = {
   'radio-group':            ['required', 'description', 'readOnly', 'hidden'],
   'checkbox-group':         ['required', 'description', 'readOnly', 'hidden'],
   number:                   ['required', 'description', 'readOnly', 'hidden', 'min', 'max', 'step'],
-  'date-time':              ['required', 'description', 'readOnly', 'hidden', 'min', 'max'],
   'aem-tag':                ['required', 'description', 'readOnly', 'hidden'],
   container:                ['description', 'readOnly', 'hidden'],
   tab:                      [],
@@ -148,7 +146,7 @@ function buildFieldSchema(fields) {
                  : f.defaultValue;
     }
 
-    if (f.type === 'date-time') { base.displayFormat = 'YYYY-MM-DD'; base.valueFormat = 'YYYY-MM-DD'; }
+    // number / date-time constraints go TOP-LEVEL — not inside validation.
     if (f.type === 'aem-content-fragment') base.variationName = '';
 
     const validation = {};
@@ -177,17 +175,6 @@ function buildFieldSchema(fields) {
 function genSimpleBlockJS(blockName) {
   return `export default function decorate(block) {
   // TODO: implement ${blockName} block
-}
-`;
-}
-
-// ─── JS template — multi-row block ───────────────────────────────────────────
-function genMultiRowBlockJS(blockName) {
-  return `export default function decorate(block) {
-  const rows = [...block.children];
-  rows.forEach((row) => {
-    // TODO: implement ${blockName} row decoration
-  });
 }
 `;
 }
@@ -430,7 +417,7 @@ async function collectOptions(rl, fieldName, ind = '') {
 const DEFAULT_VALUE_TYPES = new Set([
   'text', 'textarea', 'richtext', 'number', 'boolean',
   'select', 'multiselect', 'radio-group', 'checkbox-group',
-  'date-time', 'aem-tag',
+  'aem-tag',
 ]);
 
 async function collectDefaultValue(rl, field, ind = '') {
@@ -463,9 +450,6 @@ async function collectDefaultValue(rl, field, ind = '') {
       question = `${ind}  Default selected values for "${field.name}" (comma-separated, Enter to skip): `;
       break;
     }
-    case 'date-time':
-      question = `${ind}  Default date for "${field.name}" (YYYY-MM-DD, Enter to skip): `;
-      break;
     default:
       question = `${ind}  Default value for "${field.name}" (Enter to skip): `;
   }
@@ -534,8 +518,8 @@ async function collectValidation(rl, field, indent = '') {
   if (available.includes('description')) { const d = (await prompt(rl, `${indent}  Helper text (Enter to skip): `)).trim(); if (d) field.description = d; }
   if (available.includes('minLength'))   { const v = (await prompt(rl, `${indent}  Min length (Enter to skip): `)).trim(); if (v && !isNaN(v)) field.minLength = +v; }
   if (available.includes('maxLength'))   { const v = (await prompt(rl, `${indent}  Max length (Enter to skip): `)).trim(); if (v && !isNaN(v)) field.maxLength = +v; }
-  if (available.includes('min'))         { const v = (await prompt(rl, `${indent}  Min${field.type === 'date-time' ? ' (YYYY-MM-DD)' : ''} (Enter to skip): `)).trim(); if (v) field.min = field.type === 'number' ? +v : v; }
-  if (available.includes('max'))         { const v = (await prompt(rl, `${indent}  Max${field.type === 'date-time' ? ' (YYYY-MM-DD)' : ''} (Enter to skip): `)).trim(); if (v) field.max = field.type === 'number' ? +v : v; }
+  if (available.includes('min'))         { const v = (await prompt(rl, `${indent}  Min (Enter to skip): `)).trim(); if (v) field.min = field.type === 'number' ? +v : v; }
+  if (available.includes('max'))         { const v = (await prompt(rl, `${indent}  Max (Enter to skip): `)).trim(); if (v) field.max = field.type === 'number' ? +v : v; }
   if (available.includes('step'))        { const v = (await prompt(rl, `${indent}  Step (Enter to skip): `)).trim(); if (v && !isNaN(v)) field.step = +v; }
   if (available.includes('rootPath'))    { const v = (await prompt(rl, `${indent}  Root path (Enter to skip): `)).trim(); if (v) field.rootPath = v; }
   if (available.includes('customErrorMsg')) { const v = (await prompt(rl, `${indent}  Custom error message (Enter to skip): `)).trim(); if (v) field.customErrorMsg = v; }
@@ -668,12 +652,11 @@ async function collectFields(rl, context, depth = 0) {
 // definitions, models and filters — matching the boilerplate pattern.
 // `npm run build:json` (merge-json-cli) assembles these into global files.
 
-function genBlockJSON(blockName, isContainer, parentFields, childName, childFields, needsVariants = false, useExistingChild = false) {
+function genBlockJSON(blockName, isContainer, parentFields, childName, childFields, needsVariants = false) {
   // ── models ───────────────────────────────────────────────────────────────────
   const models = [];
   const parentSchema = buildFieldSchema(parentFields);
 
-  // classes field only added when author explicitly opted in during scaffolding
   if (needsVariants) {
     parentSchema.push({
       component:  'text',
@@ -685,21 +668,20 @@ function genBlockJSON(blockName, isContainer, parentFields, childName, childFiel
   }
 
   models.push({ id: blockName, fields: parentSchema });
-
-  // Only create child model if NOT using an existing block
-  // When useExistingChild=true, the child block already has its own model
-  if (isContainer && !useExistingChild) {
+  if (isContainer) {
     models.push({ id: childName, fields: buildFieldSchema(childFields) });
   }
 
   // ── definitions ──────────────────────────────────────────────────────────────
+  // Must use groups.components format to match boilerplate's component-definition.json
+  // structure. merge-json-cli deep-merges this correctly into the global file.
+  // Using a flat "definitions" key would create a separate key that UE ignores.
   const template = { name: toTitleCase(blockName), model: blockName };
   if (isContainer) {
     template.filter = blockName;
-    // No :items — pre-population causes 409 JCR conflict on insert
   }
 
-  const definitions = [{
+  const components = [{
     title: toTitleCase(blockName),
     id:    blockName,
     plugins: {
@@ -712,11 +694,9 @@ function genBlockJSON(blockName, isContainer, parentFields, childName, childFiel
     },
   }];
 
-  // Container blocks need a SECOND definition for the child item
-  // with resourceType block/item — this is what UE uses when author
-  // clicks + inside the block to add a child
+  // Child item definition — block/item resourceType required for UE + button
   if (isContainer) {
-    definitions.push({
+    components.push({
       title: toTitleCase(childName),
       id:    childName,
       plugins: {
@@ -732,6 +712,14 @@ function genBlockJSON(blockName, isContainer, parentFields, childName, childFiel
       },
     });
   }
+
+  const definitions = {
+    groups: [{
+      title:      'Blocks',
+      id:         'blocks',
+      components,
+    }],
+  };
 
   // ── filters ──────────────────────────────────────────────────────────────────
   // Section filter is NOT generated here — it is a project-level concern
@@ -789,14 +777,12 @@ async function cmdCreate(rl, cwd, argName, dryRun) {
   console.log(`  ${c.bold}Block type:${c.reset}`);
   console.log(`    ${c.dim}1.${c.reset} ${c.cyan}Simple${c.reset}              ${c.dim}Fixed fields — hero, banner, teaser${c.reset}`);
   console.log(`    ${c.dim}2.${c.reset} ${c.cyan}Simple with tabs${c.reset}    ${c.dim}Fixed fields grouped into UE panel tabs${c.reset}`);
-  console.log(`    ${c.dim}3.${c.reset} ${c.cyan}Multi-row${c.reset}           ${c.dim}Same fields repeating — slider, cards${c.reset}`);
-  console.log(`    ${c.dim}4.${c.reset} ${c.cyan}Container${c.reset}           ${c.dim}Children with different fields — accordion, tabs${c.reset}`);
-  console.log(`    ${c.dim}5.${c.reset} ${c.cyan}Container with tabs${c.reset} ${c.dim}Container where parent config has tab groups${c.reset}`);
+  console.log(`    ${c.dim}3.${c.reset} ${c.cyan}Container${c.reset}           ${c.dim}Children with different fields — accordion, tabs${c.reset}`);
+  console.log(`    ${c.dim}4.${c.reset} ${c.cyan}Container with tabs${c.reset} ${c.dim}Container where parent config has tab groups${c.reset}`);
   log.blank();
   const typeIn      = (await prompt(rl, `Type [1]: `)).trim();
-  const isContainer = typeIn === '4' || typeIn === '5' || typeIn.toLowerCase().startsWith('container');
-  const isMultiRow  = typeIn === '3' || typeIn.toLowerCase() === 'multi-row';
-  const useTabs     = typeIn === '2' || typeIn === '5'
+  const isContainer = typeIn === '3' || typeIn === '4' || typeIn.toLowerCase().startsWith('container');
+  const useTabs     = typeIn === '2' || typeIn === '4'
     || typeIn.toLowerCase() === 'simple with tabs'
     || typeIn.toLowerCase() === 'container with tabs';
   log.blank();
@@ -808,73 +794,18 @@ async function cmdCreate(rl, cwd, argName, dryRun) {
     : await collectFields(rl, isContainer ? `${blockName} config` : blockName);
 
   // Container: child setup
-  let childName = '', childFields = [], useExistingChild = false;
+  let childName = '', childFields = [];
   if (isContainer) {
     log.divider();
     log.section(`Phase 2 — Child item`);
-
-    // Ask if they want to use an existing block as child
-    useExistingChild = await confirm(rl, `Use an existing block as child item?`, false);
-
-    if (useExistingChild) {
-      log.blank();
-
-      // Scan blocks/ directory for existing blocks
-      const blocksDir  = path.join(cwd, 'blocks');
-      const allBlocks  = fs.existsSync(blocksDir)
-        ? fs.readdirSync(blocksDir, { withFileTypes: true })
-            .filter((d) => d.isDirectory())
-            .map((d) => d.name)
-            .filter((name) => fs.existsSync(path.join(blocksDir, name, `${name}.js`)))
-            .filter((name) => name !== blockName) // exclude current block
-        : [];
-
-      if (!allBlocks.length) {
-        log.warn('No existing blocks found in blocks/ — switching to manual entry.');
-        const existingIn = (await prompt(rl, `Block name: `)).trim().toLowerCase().replace(/\s+/g, '-');
-        childName = existingIn;
-      } else {
-        // Display numbered list
-        console.log(`\n  ${c.bold}Available blocks in this project:${c.reset}\n`);
-        allBlocks.forEach((name, i) => {
-          const hasJSON = fs.existsSync(path.join(blocksDir, name, `_${name}.json`));
-          const tag     = hasJSON ? `${c.green}(scaffolded)${c.reset}` : `${c.dim}(manual)${c.reset}`;
-          console.log(`    ${c.dim}${String(i + 1).padStart(2)}.${c.reset}  ${c.cyan}${name.padEnd(24)}${c.reset} ${tag}`);
-        });
-        log.blank();
-
-        const sel = (await prompt(rl, `Select number or type block name: `)).trim().toLowerCase();
-        const byNum = allBlocks[parseInt(sel, 10) - 1];
-        const chosen = byNum || (allBlocks.includes(sel) ? sel : null);
-
-        if (!chosen) {
-          log.warn(`"${sel}" not found in blocks/ — using as-is.`);
-          childName = sel.replace(/\s+/g, '-');
-        } else {
-          childName = chosen;
-          log.success(`Selected: ${c.bold}${childName}${c.reset}`);
-        }
-      }
-
-      if (!isValidName(childName)) { log.error(`Invalid block name.`); rl.close(); process.exit(1); }
-
-      childFields = [];
-      log.blank();
-      log.info(`Child: ${c.bold}${childName}${c.reset}  ${c.dim}(existing block — model already defined)${c.reset}`);
-      log.blank();
-      log.info(`${c.yellow}Note:${c.reset} A ${c.cyan}block/item${c.reset} definition for "${childName}" will be added`);
-      log.info(`to ${c.cyan}_${blockName}.json${c.reset} so UE knows it can be dropped inside ${blockName}.`);
-      log.blank();
-    } else {
-      const sugg    = `${blockName}-item`;
-      const childIn = (await prompt(rl, `Child item name [${sugg}]: `)).trim().toLowerCase().replace(/\s+/g, '-');
-      childName     = childIn || sugg;
-      if (!isValidName(childName)) { log.error(`Invalid child name.`); rl.close(); process.exit(1); }
-      log.blank();
-      log.info(`Child: ${c.bold}${childName}${c.reset}`);
-      log.blank();
-      childFields = await collectFields(rl, `${childName} fields`);
-    }
+    const sugg    = `${blockName}-item`;
+    const childIn = (await prompt(rl, `Child item name [${sugg}]: `)).trim().toLowerCase().replace(/\s+/g, '-');
+    childName     = childIn || sugg;
+    if (!isValidName(childName)) { log.error(`Invalid child name.`); rl.close(); process.exit(1); }
+    log.blank();
+    log.info(`Child: ${c.bold}${childName}${c.reset}`);
+    log.blank();
+    childFields = await collectFields(rl, `${childName} fields`);
   }
 
   // Variants prompt — asked for all block types
@@ -894,24 +825,22 @@ async function cmdCreate(rl, cwd, argName, dryRun) {
   const dir = path.join(cwd, 'blocks', blockName);
 
   // Minimal lint-free JS based on block type
-  let jsContent;
-  if (isContainer)     jsContent = genContainerBlockJS(blockName, childName);
-  else if (isMultiRow) jsContent = genMultiRowBlockJS(blockName);
-  else                 jsContent = genSimpleBlockJS(blockName);
+  const jsContent = isContainer
+    ? genContainerBlockJS(blockName, childName)
+    : genSimpleBlockJS(blockName);
 
   writeFile(path.join(dir, `${blockName}.js`),  jsContent,              `blocks/${blockName}/${blockName}.js`,  dryRun);
   writeFile(path.join(dir, `${blockName}.css`), genBlockCSS(blockName), `blocks/${blockName}/${blockName}.css`, dryRun);
   writeFile(path.join(dir, 'README.md'), genReadme(blockName, isContainer, parentFields, childName, childFields, needsVariants), `blocks/${blockName}/README.md`, dryRun);
 
-  const blockJSON = genBlockJSON(blockName, isContainer, parentFields, childName, childFields, needsVariants, useExistingChild);
+  const blockJSON = genBlockJSON(blockName, isContainer, parentFields, childName, childFields, needsVariants);
   writeBlockJSON(dir, blockName, blockJSON, dryRun);
 
   // Summary
   log.blank(); log.divider();
   const prefix   = dryRun ? `${c.yellow}~ DRY RUN${c.reset} ` : `${c.green}✔${c.reset} `;
-  const typeLabel = isContainer && useTabs ? `container with tabs → ${childName}${useExistingChild ? ' (existing)' : ''}`
-                  : isContainer            ? `container → ${childName}${useExistingChild ? ' (existing)' : ''}`
-                  : isMultiRow             ? 'multi-row'
+  const typeLabel = isContainer && useTabs ? `container with tabs → ${childName}`
+                  : isContainer            ? `container → ${childName}`
                   : useTabs                ? 'simple with tabs'
                   :                         'simple';
   console.log(`\n  ${prefix}${c.bold}"${blockName}" ${dryRun ? 'would be' : 'scaffolded!'} (${typeLabel})${c.reset}\n`);
