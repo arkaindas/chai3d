@@ -542,6 +542,43 @@ async function collectValidation(rl, field, indent = '') {
   log.blank();
 }
 
+// ─── Field collector with tab grouping ───────────────────────────────────────
+async function collectFieldsWithTabs(rl, context) {
+  log.info(`Define tab groups for ${c.bold}${context}${c.reset}. Each tab appears as a panel section in UE.`);
+  log.blank();
+
+  const allFields = [];
+  let   tabCount  = 0;
+
+  while (true) {
+    tabCount++;
+    log.divider();
+
+    const tabLabelIn = (await prompt(rl, `Tab ${tabCount} name (e.g. Media, Links, Body): `)).trim();
+    if (!tabLabelIn) { log.warn('Tab name cannot be blank.'); tabCount--; continue; }
+
+    const tabName  = `tab${tabCount}`;
+    const tabLabel = tabLabelIn;
+
+    allFields.push({ name: tabName, label: tabLabel, type: 'tab' });
+    log.success(`Tab "${tabLabel}" created — define its fields:`);
+    log.blank();
+
+    const tabFields = await collectFields(rl, `"${tabLabel}" tab`);
+    allFields.push(...tabFields);
+
+    log.blank();
+    const addMore = await confirm(rl, `Add another tab?`, false);
+    if (!addMore) break;
+    log.blank();
+  }
+
+  log.blank();
+  log.info(`${tabCount} tab(s) defined with ${allFields.filter(f => f.type !== 'tab').length} total fields.`);
+  log.blank();
+  return allFields;
+}
+
 // ─── Field collector ──────────────────────────────────────────────────────────
 async function collectFields(rl, context, depth = 0) {
   const fields = [];
@@ -631,7 +668,7 @@ async function collectFields(rl, context, depth = 0) {
 // definitions, models and filters — matching the boilerplate pattern.
 // `npm run build:json` (merge-json-cli) assembles these into global files.
 
-function genBlockJSON(blockName, isContainer, parentFields, childName, childFields, needsVariants = false) {
+function genBlockJSON(blockName, isContainer, parentFields, childName, childFields, needsVariants = false, useExistingChild = false) {
   // ── models ───────────────────────────────────────────────────────────────────
   const models = [];
   const parentSchema = buildFieldSchema(parentFields);
@@ -648,7 +685,10 @@ function genBlockJSON(blockName, isContainer, parentFields, childName, childFiel
   }
 
   models.push({ id: blockName, fields: parentSchema });
-  if (isContainer) {
+
+  // Only create child model if NOT using an existing block
+  // When useExistingChild=true, the child block already has its own model
+  if (isContainer && !useExistingChild) {
     models.push({ id: childName, fields: buildFieldSchema(childFields) });
   }
 
@@ -747,32 +787,94 @@ async function cmdCreate(rl, cwd, argName, dryRun) {
   // Block type
   log.blank();
   console.log(`  ${c.bold}Block type:${c.reset}`);
-  console.log(`    ${c.dim}1.${c.reset} ${c.cyan}Simple${c.reset}     ${c.dim}Fixed fields — hero, banner, teaser, quote${c.reset}`);
-  console.log(`    ${c.dim}2.${c.reset} ${c.cyan}Multi-row${c.reset}  ${c.dim}Same fields repeating — slider, cards, table rows${c.reset}`);
-  console.log(`    ${c.dim}3.${c.reset} ${c.cyan}Container${c.reset}  ${c.dim}Children with different fields — accordion, tabs${c.reset}`);
+  console.log(`    ${c.dim}1.${c.reset} ${c.cyan}Simple${c.reset}              ${c.dim}Fixed fields — hero, banner, teaser${c.reset}`);
+  console.log(`    ${c.dim}2.${c.reset} ${c.cyan}Simple with tabs${c.reset}    ${c.dim}Fixed fields grouped into UE panel tabs${c.reset}`);
+  console.log(`    ${c.dim}3.${c.reset} ${c.cyan}Multi-row${c.reset}           ${c.dim}Same fields repeating — slider, cards${c.reset}`);
+  console.log(`    ${c.dim}4.${c.reset} ${c.cyan}Container${c.reset}           ${c.dim}Children with different fields — accordion, tabs${c.reset}`);
+  console.log(`    ${c.dim}5.${c.reset} ${c.cyan}Container with tabs${c.reset} ${c.dim}Container where parent config has tab groups${c.reset}`);
   log.blank();
-  const typeIn = (await prompt(rl, `Type [1]: `)).trim();
-  const isContainer = typeIn === '3' || typeIn.toLowerCase() === 'container';
-  const isMultiRow  = typeIn === '2' || typeIn.toLowerCase() === 'multi-row';
+  const typeIn      = (await prompt(rl, `Type [1]: `)).trim();
+  const isContainer = typeIn === '4' || typeIn === '5' || typeIn.toLowerCase().startsWith('container');
+  const isMultiRow  = typeIn === '3' || typeIn.toLowerCase() === 'multi-row';
+  const useTabs     = typeIn === '2' || typeIn === '5'
+    || typeIn.toLowerCase() === 'simple with tabs'
+    || typeIn.toLowerCase() === 'container with tabs';
   log.blank();
 
-  // Parent fields
+  // Parent fields — with or without tab grouping based on block type
   log.section(isContainer ? `Phase 1 — Parent config fields` : `Define block fields`);
-  const parentFields = await collectFields(rl, isContainer ? `${blockName} config` : blockName);
+  const parentFields = useTabs
+    ? await collectFieldsWithTabs(rl, isContainer ? `${blockName} config` : blockName, true)
+    : await collectFields(rl, isContainer ? `${blockName} config` : blockName);
 
   // Container: child setup
-  let childName = '', childFields = [];
+  let childName = '', childFields = [], useExistingChild = false;
   if (isContainer) {
     log.divider();
     log.section(`Phase 2 — Child item`);
-    const sugg    = `${blockName}-item`;
-    const childIn = (await prompt(rl, `Child item name [${sugg}]: `)).trim().toLowerCase().replace(/\s+/g, '-');
-    childName     = childIn || sugg;
-    if (!isValidName(childName)) { log.error(`Invalid child name.`); rl.close(); process.exit(1); }
-    log.blank();
-    log.info(`Child: ${c.bold}${childName}${c.reset}`);
-    log.blank();
-    childFields = await collectFields(rl, `${childName} fields`);
+
+    // Ask if they want to use an existing block as child
+    useExistingChild = await confirm(rl, `Use an existing block as child item?`, false);
+
+    if (useExistingChild) {
+      log.blank();
+
+      // Scan blocks/ directory for existing blocks
+      const blocksDir  = path.join(cwd, 'blocks');
+      const allBlocks  = fs.existsSync(blocksDir)
+        ? fs.readdirSync(blocksDir, { withFileTypes: true })
+            .filter((d) => d.isDirectory())
+            .map((d) => d.name)
+            .filter((name) => fs.existsSync(path.join(blocksDir, name, `${name}.js`)))
+            .filter((name) => name !== blockName) // exclude current block
+        : [];
+
+      if (!allBlocks.length) {
+        log.warn('No existing blocks found in blocks/ — switching to manual entry.');
+        const existingIn = (await prompt(rl, `Block name: `)).trim().toLowerCase().replace(/\s+/g, '-');
+        childName = existingIn;
+      } else {
+        // Display numbered list
+        console.log(`\n  ${c.bold}Available blocks in this project:${c.reset}\n`);
+        allBlocks.forEach((name, i) => {
+          const hasJSON = fs.existsSync(path.join(blocksDir, name, `_${name}.json`));
+          const tag     = hasJSON ? `${c.green}(scaffolded)${c.reset}` : `${c.dim}(manual)${c.reset}`;
+          console.log(`    ${c.dim}${String(i + 1).padStart(2)}.${c.reset}  ${c.cyan}${name.padEnd(24)}${c.reset} ${tag}`);
+        });
+        log.blank();
+
+        const sel = (await prompt(rl, `Select number or type block name: `)).trim().toLowerCase();
+        const byNum = allBlocks[parseInt(sel, 10) - 1];
+        const chosen = byNum || (allBlocks.includes(sel) ? sel : null);
+
+        if (!chosen) {
+          log.warn(`"${sel}" not found in blocks/ — using as-is.`);
+          childName = sel.replace(/\s+/g, '-');
+        } else {
+          childName = chosen;
+          log.success(`Selected: ${c.bold}${childName}${c.reset}`);
+        }
+      }
+
+      if (!isValidName(childName)) { log.error(`Invalid block name.`); rl.close(); process.exit(1); }
+
+      childFields = [];
+      log.blank();
+      log.info(`Child: ${c.bold}${childName}${c.reset}  ${c.dim}(existing block — model already defined)${c.reset}`);
+      log.blank();
+      log.info(`${c.yellow}Note:${c.reset} A ${c.cyan}block/item${c.reset} definition for "${childName}" will be added`);
+      log.info(`to ${c.cyan}_${blockName}.json${c.reset} so UE knows it can be dropped inside ${blockName}.`);
+      log.blank();
+    } else {
+      const sugg    = `${blockName}-item`;
+      const childIn = (await prompt(rl, `Child item name [${sugg}]: `)).trim().toLowerCase().replace(/\s+/g, '-');
+      childName     = childIn || sugg;
+      if (!isValidName(childName)) { log.error(`Invalid child name.`); rl.close(); process.exit(1); }
+      log.blank();
+      log.info(`Child: ${c.bold}${childName}${c.reset}`);
+      log.blank();
+      childFields = await collectFields(rl, `${childName} fields`);
+    }
   }
 
   // Variants prompt — asked for all block types
@@ -801,13 +903,17 @@ async function cmdCreate(rl, cwd, argName, dryRun) {
   writeFile(path.join(dir, `${blockName}.css`), genBlockCSS(blockName), `blocks/${blockName}/${blockName}.css`, dryRun);
   writeFile(path.join(dir, 'README.md'), genReadme(blockName, isContainer, parentFields, childName, childFields, needsVariants), `blocks/${blockName}/README.md`, dryRun);
 
-  const blockJSON = genBlockJSON(blockName, isContainer, parentFields, childName, childFields, needsVariants);
+  const blockJSON = genBlockJSON(blockName, isContainer, parentFields, childName, childFields, needsVariants, useExistingChild);
   writeBlockJSON(dir, blockName, blockJSON, dryRun);
 
   // Summary
   log.blank(); log.divider();
   const prefix   = dryRun ? `${c.yellow}~ DRY RUN${c.reset} ` : `${c.green}✔${c.reset} `;
-  const typeLabel = isContainer ? `container → ${childName}` : isMultiRow ? 'multi-row' : 'simple';
+  const typeLabel = isContainer && useTabs ? `container with tabs → ${childName}${useExistingChild ? ' (existing)' : ''}`
+                  : isContainer            ? `container → ${childName}${useExistingChild ? ' (existing)' : ''}`
+                  : isMultiRow             ? 'multi-row'
+                  : useTabs                ? 'simple with tabs'
+                  :                         'simple';
   console.log(`\n  ${prefix}${c.bold}"${blockName}" ${dryRun ? 'would be' : 'scaffolded!'} (${typeLabel})${c.reset}\n`);
   if (!dryRun) {
     console.log(`  ${c.dim}Files created:${c.reset}`);
