@@ -751,7 +751,7 @@ async function collectFields(rl, context, depth = 0) {
 // `npm run build:json` (merge-json-cli) assembles these into global files.
 
 // ─── JSON + README — section wrapper ─────────────────────────────────────────
-function genSectionWrapperJSON(blockName, labelName, labelLabel, labelRequired, customErr, filterComponents) {
+function genSectionWrapperJSON(blockName, labelName, labelLabel, labelRequired, customErr, filterComponents, companionName, companionFields) {
   const labelField = {
     component: 'text',
     name:      labelName,
@@ -761,58 +761,86 @@ function genSectionWrapperJSON(blockName, labelName, labelLabel, labelRequired, 
   };
   if (customErr) labelField.validation = { customErrorMsg: customErr };
 
-  return {
-    definitions: [{
-      title: toTitleCase(blockName),
-      id:    blockName,
+  // companion block auto-included in filter so it can be placed inside each tab
+  const allFilterComponents = companionName
+    ? [...filterComponents, companionName]
+    : filterComponents;
+
+  const definitions = [{
+    title: toTitleCase(blockName),
+    id:    blockName,
+    plugins: {
+      xwalk: {
+        page: {
+          resourceType: 'core/franklin/components/section/v1/section',
+          template: {
+            name:        toTitleCase(blockName),
+            model:       blockName,
+            filter:      blockName,
+            [labelName]: toTitleCase(labelName),
+          },
+        },
+      },
+    },
+  }];
+
+  const models = [{ id: blockName, fields: [labelField] }];
+
+  // Companion block — tab navigation bar (block/v1/block)
+  if (companionName && companionFields?.length) {
+    definitions.push({
+      title: toTitleCase(companionName),
+      id:    companionName,
       plugins: {
         xwalk: {
           page: {
-            resourceType: 'core/franklin/components/section/v1/section',
+            resourceType: 'core/franklin/components/block/v1/block',
             template: {
-              name:        toTitleCase(blockName),
-              model:       blockName,
-              filter:      blockName,
-              [labelName]: toTitleCase(labelName),
+              name:  toTitleCase(companionName),
+              model: companionName,
             },
           },
         },
       },
-    }],
-    models:  [{ id: blockName, fields: [labelField] }],
-    filters: [{ id: blockName, components: filterComponents }],
+    });
+    models.push({ id: companionName, fields: buildFieldSchema(companionFields) });
+  }
+
+  return {
+    definitions,
+    models,
+    filters: [{ id: blockName, components: allFilterComponents }],
   };
 }
 
-function genSectionWrapperReadme(blockName, labelName, labelLabel, filterComponents) {
-  const title = toTitleCase(blockName);
+function genSectionWrapperReadme(blockName, labelName, labelLabel, filterComponents, companionName) {
+  const title     = toTitleCase(blockName);
+  const compTitle = companionName ? toTitleCase(companionName) : null;
   return `# ${title}
 
-Section wrapper — each instance wraps an entire **section** in UE.
-Authors set a tab label then add any allowed block inside.
+Section wrapper — each tab is a **section** in UE. Add as many sections as tabs needed.
+${companionName ? `The **${compTitle}** block inside each section renders the tab navigation bar.` : ''}
 
 ---
 
 ## Authoring in Universal Editor
 
-**Step 1 — Add a tab section**
+**Step 1 — Add Tab 1**
 
 1. Open page in **Universal Editor**
-2. Click **+** to add a new Section
-3. Click **+** inside the section → select **${title}**
-4. Click on it → Properties panel:
-
+2. Click **+** at section level → select **${title}**
+3. Click on the new section → Properties panel:
 \`\`\`
-${labelLabel}  [ Products ]   ← sets the tab name
+${labelLabel} *  [ Products ]   ← required — sets the tab name
 \`\`\`
-
-5. Enter the label → click **✓ Save**
+4. Enter tab label → click **✓ Save**
+${companionName ? `5. Click **+** INSIDE the section → add **${compTitle}**\n   → Sets position of tab navigation bar` : ''}
 
 ---
 
-**Step 2 — Add blocks inside the tab**
+**Step 2 — Add content blocks inside Tab 1**
 
-Click **+** inside the section and add any of:
+Click **+** INSIDE the section and add any allowed block:
 
 ${filterComponents.map(b => `- ${toTitleCase(b)}`).join('\n')}
 
@@ -820,13 +848,36 @@ ${filterComponents.map(b => `- ${toTitleCase(b)}`).join('\n')}
 
 **Step 3 — Add more tabs**
 
-Each new section with ${title} = one new tab. Repeat.
+Repeat Step 1 and Step 2 for each tab:
+- Click **+** at section level → **${title}**
+- Set a different tab label
+- ${companionName ? `Add **${compTitle}** block` : 'Add content'}
+- Add content blocks
+
+Each section = one tab. No limit on number of tabs.
 
 ---
 
 **Step 4 — Publish**
 
-Click **Publish** in UE toolbar.
+Click **Publish** in the UE toolbar.
+
+---
+
+## Resulting content tree
+
+\`\`\`
+Page → Main
+  ├── Section (${blockName}, ${labelName}: "Products")
+  │     ${companionName ? `├── ${compTitle} block` : ''}
+  │     └── content blocks
+  ├── Section (${blockName}, ${labelName}: "Services")
+  │     ${companionName ? `├── ${compTitle} block` : ''}
+  │     └── content blocks
+  └── Section (${blockName}, ${labelName}: "About")
+        ${companionName ? `├── ${compTitle} block` : ''}
+        └── content blocks
+\`\`\`
 
 ---
 
@@ -1013,15 +1064,33 @@ async function cmdCreate(rl, cwd, argName, dryRun) {
     log.info(`Filter: ${c.cyan}${filterComponents.join(', ')}${c.reset}`);
     log.blank();
 
+    // Companion navigation block
+    log.divider();
+    log.info(`A companion navigation block renders the tab nav bar inside each section.`);
+    log.info(`Example: "tab-list" block with List Position (left/center) field.`);
+    log.blank();
+    const wantsCompanion = await confirm(rl, `Create a companion navigation block?`, true);
+    let companionName = '', companionFields = [];
+
+    if (wantsCompanion) {
+      const compSugg  = `${blockName}-list`;
+      const compIn    = (await prompt(rl, `Companion block name [${compSugg}]: `)).trim().toLowerCase().replace(/\s+/g, '-');
+      companionName   = compIn || compSugg;
+      log.blank();
+      log.info(`Define fields for ${c.bold}${companionName}${c.reset} (e.g. listPosition select, theme select)`);
+      log.blank();
+      companionFields = await collectFields(rl, `${companionName} fields`);
+    }
+
     rl.close();
 
     // Generate section wrapper JSON
-    const swJSON = genSectionWrapperJSON(blockName, labelName, labelLabel, labelReq, customErr, filterComponents);
+    const swJSON = genSectionWrapperJSON(blockName, labelName, labelLabel, labelReq, customErr, filterComponents, companionName, companionFields);
     const swDir  = path.join(cwd, 'blocks', blockName);
 
     writeFile(path.join(swDir, `${blockName}.js`),  genSimpleBlockJS(blockName),  `blocks/${blockName}/${blockName}.js`,  dryRun);
     writeFile(path.join(swDir, `${blockName}.css`), genBlockCSS(blockName),       `blocks/${blockName}/${blockName}.css`, dryRun);
-    writeFile(path.join(swDir, 'README.md'),         genSectionWrapperReadme(blockName, labelName, labelLabel, filterComponents), `blocks/${blockName}/README.md`, dryRun);
+    writeFile(path.join(swDir, 'README.md'),         genSectionWrapperReadme(blockName, labelName, labelLabel, filterComponents, companionName), `blocks/${blockName}/README.md`, dryRun);
     writeBlockJSON(swDir, blockName, swJSON, dryRun);
 
     log.blank(); log.divider();
