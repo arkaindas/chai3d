@@ -1,1340 +1,233 @@
 #!/usr/bin/env node
 
-/**
- * AEM EDS Block Scaffolder
- *
- * Commands:
- *   eds-scaffold create [block-name]   Scaffold a new block
- *   eds-scaffold remove <block-name>   Delete block folder (JSON goes with it)
- *   eds-scaffold list                  Show all blocks with status
- *
- * Flags:
- *   --dry-run    Print what would be generated without writing any files
- *
- * Block-level JSON pattern:
- *   Each block owns blocks/<name>/_<name>.json containing its definitions,
- *   models and filters. Run `npm run build:json` (merge-json-cli in the
- *   boilerplate) to assemble the global component-*.json files.
- *   Never edit global files by hand.
- */
+const { McpServer }            = require('@modelcontextprotocol/sdk/server/mcp.js');
+const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
+const { z }                    = require('zod');
+const { execSync }             = require('child_process');
+const fs                       = require('fs');
+const path                     = require('path');
 
-const fs        = require('fs');
-const path      = require('path');
-const readline  = require('readline');
+// ── Your EDS project path — change this ───────────────────────────────────────
+const EDS_PROJECT = 'C:\\tatapower\\eds\\cm-p131516-s25703-tata-power-eds';
 
-// ─── ANSI colours ─────────────────────────────────────────────────────────────
-const c = {
-  reset: '\x1b[0m', bold: '\x1b[1m', dim: '\x1b[2m',
-  green: '\x1b[32m', cyan: '\x1b[36m', yellow: '\x1b[33m', red: '\x1b[31m',
-};
+const server = new McpServer({
+  name:    'aem-eds-scaffold',
+  version: '1.0.0',
+});
 
-const log = {
-  info:    (m) => console.log(`  ${c.cyan}ℹ${c.reset}  ${m}`),
-  success: (m) => console.log(`  ${c.green}✔${c.reset}  ${m}`),
-  warn:    (m) => console.log(`  ${c.yellow}⚠${c.reset}  ${m}`),
-  error:   (m) => console.log(`  ${c.red}✖${c.reset}  ${m}`),
-  dry:     (m) => console.log(`  ${c.yellow}~${c.reset}  ${c.dim}[dry-run]${c.reset} ${m}`),
-  title:   (m) => console.log(`\n${c.bold}${c.cyan}${m}${c.reset}\n`),
-  divider: ()  => console.log(`  ${c.dim}${'─'.repeat(50)}${c.reset}`),
-  blank:   ()  => console.log(''),
-  section: (m) => console.log(`\n  ${c.bold}${m}${c.reset}\n`),
-};
+// ── Helper ────────────────────────────────────────────────────────────────────
+function run(cmd) {
+  return execSync(cmd, { cwd: EDS_PROJECT, encoding: 'utf8' });
+}
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const toTitleCase   = (s) => s.replace(/-/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
-const isValidName   = (s) => /^[a-z][a-z0-9-]*$/.test(s);
-const prompt        = (rl, q) => new Promise((res) => rl.question(`  ${q}`, res));
-const confirm       = async (rl, q, def = true) => {
-  const hint = def ? '[Y/n]' : '[y/N]';
-  const a = (await prompt(rl, `${q} ${c.dim}${hint}${c.reset} `)).trim().toLowerCase();
-  return !a ? def : a === 'y' || a === 'yes';
-};
-const readJSON  = (p) => { try { return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null; } catch { return null; } };
-const tick      = (v) => v ? `${c.green}✔${c.reset}` : `${c.red}✖${c.reset}`;
-const col       = (s, w) => String(s || '').padEnd(w).slice(0, w);
-
-// ─── Field types ──────────────────────────────────────────────────────────────
-const FIELD_TYPES = {
-  text:                      { label: 'Single-line text',                valueType: 'string',   multi: true  },
-  textarea:                  { label: 'Multi-line plain text',           valueType: 'string',   multi: false },
-  richtext:                  { label: 'Rich text (HTML / WYSIWYG)',      valueType: 'string',   multi: false },
-  reference:                 { label: 'Image / Media (DAM asset)',       valueType: 'string',   multi: true  },
-  'aem-content':             { label: 'AEM page / content / link',       valueType: 'string',   multi: true  },
-  'aem-content-fragment':    { label: 'Content Fragment picker',         valueType: 'string',   multi: false },
-  'aem-experience-fragment': { label: 'Experience Fragment picker',      valueType: 'string',   multi: false },
-  boolean:                   { label: 'Boolean toggle (true / false)',   valueType: 'boolean',  multi: false },
-  select:                    { label: 'Dropdown — single value',         valueType: 'string',   multi: false },
-  multiselect:               { label: 'Dropdown — multiple values',      valueType: 'string[]', multi: false },
-  'radio-group':             { label: 'Radio buttons — single value',    valueType: 'string',   multi: false },
-  'checkbox-group':          { label: 'Checkboxes — multiple values',    valueType: 'string[]', multi: false },
-  number:                    { label: 'Number input',                    valueType: 'number',   multi: false },
-  'aem-tag':                 { label: 'AEM Tag picker (cq:tags)',        valueType: 'string',   multi: false },
-};
-
-const FIELD_GROUPS = [
-  { title: 'Text inputs',         keys: ['text', 'textarea', 'richtext'] },
-  { title: 'Media & references',  keys: ['reference', 'aem-content', 'aem-content-fragment', 'aem-experience-fragment'] },
-  { title: 'Selection & toggles', keys: ['boolean', 'select', 'multiselect', 'radio-group', 'checkbox-group'] },
-  { title: 'Specialised',         keys: ['number', 'aem-tag'] },
-];
-
-const ALL_FIELD_KEYS = Object.keys(FIELD_TYPES);
-
-function printFieldTypes() {
-  let idx = 1;
-  for (const group of FIELD_GROUPS) {
-    console.log(`\n  ${c.dim}── ${group.title} ${'─'.repeat(28 - group.title.length)}${c.reset}`);
-    for (const k of group.keys) {
-      const e  = FIELD_TYPES[k];
-      const vt = e.valueType ? `${c.dim}[${e.valueType}]${c.reset}` : `${c.dim}[layout]${c.reset}`;
-      const mu = e.multi ? ` ${c.dim}(multi ok)${c.reset}` : '';
-      console.log(`  ${c.dim}${String(idx).padStart(3)}.${c.reset} ${c.cyan}${k.padEnd(26)}${c.reset}${vt}${mu} ${c.dim}${e.label}${c.reset}`);
-      idx++;
+// ── Tool 1: list_blocks ───────────────────────────────────────────────────────
+server.tool(
+  'list_blocks',
+  'List all blocks in the EDS project with their file status (js, css, json, readme)',
+  {},
+  async () => {
+    try {
+      const out = run('npx aem-eds-cli list');
+      return { content: [{ type: 'text', text: out }] };
+    } catch (e) {
+      return { content: [{ type: 'text', text: 'Error: ' + e.message }] };
     }
   }
-  console.log('');
-}
+);
 
-// ─── Validation config ────────────────────────────────────────────────────────
-const VALIDATIONS = {
-  text:                     ['required', 'description', 'readOnly', 'hidden', 'minLength', 'maxLength'],
-  textarea:                 ['required', 'description', 'readOnly', 'hidden', 'minLength', 'maxLength'],
-  richtext:                 ['required', 'description', 'readOnly', 'hidden'],
-  reference:                ['required', 'description', 'readOnly', 'hidden'],
-  'aem-content':            ['required', 'description', 'readOnly', 'hidden', 'rootPath'],
-  'aem-content-fragment':   ['required', 'description', 'readOnly', 'hidden', 'rootPath'],
-  'aem-experience-fragment':['required', 'description', 'readOnly', 'hidden'],
-  boolean:                  ['description', 'readOnly', 'hidden', 'customErrorMsg'],
-  select:                   ['required', 'description', 'readOnly', 'hidden'],
-  multiselect:              ['required', 'description', 'readOnly', 'hidden'],
-  'radio-group':            ['required', 'description', 'readOnly', 'hidden'],
-  'checkbox-group':         ['required', 'description', 'readOnly', 'hidden'],
-  number:                   ['required', 'description', 'readOnly', 'hidden', 'min', 'max', 'step'],
-  'date-time':              ['required', 'description', 'readOnly', 'hidden', 'min', 'max'],
-  'aem-tag':                ['required', 'description', 'readOnly', 'hidden'],
-};
-
-// ─── Field schema builder ─────────────────────────────────────────────────────
-const OPTION_TYPES = new Set(['select', 'multiselect', 'radio-group', 'checkbox-group']);
-
-function buildFieldSchema(fields) {
-  return fields.map((f) => {
-    const base = { component: f.type, name: f.name, label: f.label };
-    if (f.type !== 'tab')    base.valueType   = FIELD_TYPES[f.type]?.valueType || 'string';
-    if (f.required)          base.required    = true;
-    if (f.readOnly)          base.readOnly    = true;
-    if (f.hidden)            base.hidden      = true;
-    if (f.description)       base.description = f.description;
-    if (f.multi)             base.multi       = true;
-    else if (f.type === 'reference') base.multi = false;
-
-    // Real options from collector (or placeholder fallback)
-    if (OPTION_TYPES.has(f.type)) {
-      base.options = f.options?.length
-        ? f.options
-        : [{ name: 'Option 1', value: 'option-1' }, { name: 'Option 2', value: 'option-2' }];
+// ── Tool 2: remove_block ──────────────────────────────────────────────────────
+server.tool(
+  'remove_block',
+  'Remove an existing block and all its files from the EDS project',
+  {
+    name: z.string().describe('Block name to remove e.g. "old-carousel"'),
+  },
+  async ({ name }) => {
+    try {
+      const out = run(`npx aem-eds-cli remove ${name}`);
+      return { content: [{ type: 'text', text: out }] };
+    } catch (e) {
+      return { content: [{ type: 'text', text: 'Error: ' + e.message }] };
     }
+  }
+);
 
-    // Default value
-    if (f.defaultValue !== undefined && f.defaultValue !== '') {
-      base.value = f.type === 'number'  ? Number(f.defaultValue)
-                 : f.type === 'boolean' ? (f.defaultValue === 'true' || f.defaultValue === true)
-                 : f.defaultValue;
+// ── Tool 3: read_block_json ───────────────────────────────────────────────────
+server.tool(
+  'read_block_json',
+  'Read the _blockname.json of an existing block — definitions, models, filters',
+  {
+    name: z.string().describe('Block name e.g. "carousel"'),
+  },
+  async ({ name }) => {
+    const jsonPath = path.join(EDS_PROJECT, 'blocks', name, `_${name}.json`);
+    if (!fs.existsSync(jsonPath)) {
+      return { content: [{ type: 'text', text: `_${name}.json not found in blocks/${name}/` }] };
     }
+    const content = fs.readFileSync(jsonPath, 'utf8');
+    return { content: [{ type: 'text', text: content }] };
+  }
+);
 
-    // number / date-time constraints go TOP-LEVEL — not inside validation.
-    if (f.type === 'aem-content-fragment') base.variationName = '';
+// ── Tool 4: get_field_types ───────────────────────────────────────────────────
+server.tool(
+  'get_field_types',
+  'Get all supported Universal Editor field types and block types for aem-eds-cli',
+  {},
+  async () => {
+    const info = `
+=== aem-eds-cli Field Types ===
 
-    const validation = {};
-    if (f.minLength !== undefined)  validation.minLength      = f.minLength;
-    if (f.maxLength !== undefined)  validation.maxLength      = f.maxLength;
-    if (f.rootPath)                 validation.rootPath       = f.rootPath;
-    if (f.customErrorMsg)           validation.customErrorMsg = f.customErrorMsg;
-    if (Object.keys(validation).length) base.validation = validation;
+TEXT INPUTS
+  text                → Single line text
+  textarea            → Multi-line plain text
+  richtext            → WYSIWYG rich text editor
 
-    // number / date-time constraints go TOP-LEVEL — not inside validation.
-    // UE maps these directly to HTML input attributes (min, max, step).
-    // Nesting them under validation means UE ignores them entirely.
-    if (f.min  !== undefined) base.min  = f.min;
-    if (f.max  !== undefined) base.max  = f.max;
-    if (f.step !== undefined) base.step = f.step;
+MEDIA & REFERENCES
+  reference           → DAM asset picker        (multi: true supported)
+  aem-content         → Page / link picker      (multi: true supported)
+  aem-content-fragment → Content Fragment picker
+  aem-experience-fragment → Experience Fragment picker
 
-    // Conditional visibility — JSONLogic syntax
-    if (f.condition) base.condition = f.condition;
+SELECTION
+  boolean             → Toggle on / off
+  select              → Single choice dropdown
+  multiselect         → Multi choice dropdown
+  radio-group         → Radio buttons
+  checkbox-group      → Checkboxes
 
-    return base;
-  });
-}
+SPECIALISED
+  number              → Numeric input (min / max / step)
+  aem-tag             → AEM tag picker (cq:tags)
 
-// ─── JS template — simple block ───────────────────────────────────────────────
-function genSimpleBlockJS(blockName) {
-  return `export default function decorate(block) {
-  // TODO: implement ${blockName} block
-}
-`;
-}
+=== Block Types ===
 
-// ─── JS template — container block ───────────────────────────────────────────
-function genContainerBlockJS(blockName, childName) {
-  return `export default function decorate(block) {
-  const [, ...itemRows] = [...block.children];
-  itemRows.forEach((item) => {
-    item.classList.add('${blockName}__item');
-    // TODO: implement ${childName} item decoration
-  });
-}
-`;
-}
+  1. Simple              Fixed fields — hero, banner, teaser
+  2. Simple with tabs    Fixed fields grouped into UE panel tabs
+  3. Container           Repeating child items — carousel, accordion
+  4. Container with tabs Container where parent config has tab groups
+  5. Section wrapper     Section-level tab panel (section/v1/section)
 
-// ─── CSS template ─────────────────────────────────────────────────────────────
-function genBlockCSS(blockName) {
-  return `.${blockName} {
-  display: block;
-}
-`;
-}
+=== Conditional Fields ===
 
-// ─── README template ──────────────────────────────────────────────────────────
-function genReadme(blockName, isContainer, parentFields, childName, childFields) {
-  const title      = toTitleCase(blockName);
-  const childTitle = toTitleCase(childName);
-  // Detect variants from parentFields
-  const variantField   = parentFields.find(f => f.name === 'classes' && f.type === 'select');
-  const hasVariants    = !!variantField;
+  Works on: select, radio-group, boolean fields
+  Operators: === (equals one), or (equals any), !== (not equal)
 
-  // ── Field reference table ─────────────────────────────────────────────────
-  const buildTable = (fields, heading) => {
-    if (!fields.length) return `### ${heading}\n\n*No fields defined.*`;
-    const rows = fields.map((f) => {
-      const req    = f.required     ? ' *(required)*'          : '';
-      const multi  = f.multi        ? ' *(multi)*'             : '';
-      const opts   = f.options?.length
-        ? f.options.map((o) => `\`${o.value}\``).join(', ')   : '—';
-      const defVal = f.defaultValue !== undefined
-        ? `\`${f.defaultValue}\``                              : '—';
-      const valid  = [
-        f.minLength !== undefined && `minLength: ${f.minLength}`,
-        f.maxLength !== undefined && `maxLength: ${f.maxLength}`,
-        f.min       !== undefined && `min: ${f.min}`,
-        f.max       !== undefined && `max: ${f.max}`,
-        f.rootPath                && `rootPath: ${f.rootPath}`,
-      ].filter(Boolean).join(', ') || '—';
-      return `| ${f.label}${req} | \`${f.type}\`${multi} | \`${f.name}\` | ${opts} | ${defVal} | ${valid} |`;
+=== Validation Properties ===
+
+  required, readOnly, hidden, description        → all field types
+  min, max, step                                  → number (top-level)
+  minLength, maxLength, rootPath, customErrorMsg  → inside validation object
+    `;
+    return { content: [{ type: 'text', text: info }] };
+  }
+);
+
+// ── Tool 5: suggest_create_command ───────────────────────────────────────────
+server.tool(
+  'suggest_create_command',
+  'Given a block description, suggest the exact aem-eds-cli create command and all prompt answers the developer should type',
+  {
+    description: z.string().describe('What the block should do e.g. "a carousel with autoplay config and slides with image and caption"'),
+  },
+  async ({ description }) => {
+    // Returns a structured guide for the developer to follow in terminal
+    const guide = `
+Based on your description: "${description}"
+
+Run this in your EDS project terminal:
+
+  npx aem-eds-cli create <block-name>
+
+Then answer the prompts as follows — I will fill in the details
+after you tell me the exact block name you want.
+
+To get my full prompt-by-prompt guide, tell me:
+1. What name should this block have?
+2. Any specific field requirements?
+
+I will then give you every prompt answer step by step.
+    `;
+    return { content: [{ type: 'text', text: guide }] };
+  }
+);
+
+// ── Tool 6: get_block_structure ───────────────────────────────────────────────
+server.tool(
+  'get_block_structure',
+  'Get the folder and file structure of a specific block',
+  {
+    name: z.string().describe('Block name e.g. "hero"'),
+  },
+  async ({ name }) => {
+    const blockDir = path.join(EDS_PROJECT, 'blocks', name);
+    if (!fs.existsSync(blockDir)) {
+      return { content: [{ type: 'text', text: `Block "${name}" not found in blocks/` }] };
+    }
+    const files   = fs.readdirSync(blockDir);
+    const details = files.map(f => {
+      const fPath = path.join(blockDir, f);
+      const size  = fs.statSync(fPath).size;
+      return `  ${f.padEnd(30)} ${size} bytes`;
     }).join('\n');
-    return `### ${heading}\n\n| Label | Type | Property | Options | Default | Validation |\n|---|---|---|---|---|---|\n${rows}`;
-  };
-
-  // ── UE authoring steps ────────────────────────────────────────────────────
-  const simpleSteps = () => `
-1. Open your page in **Universal Editor**
-2. Click **+** inside a Section to open the block picker
-3. Select **${title}** from the list
-4. The block is added — click on it to open the **Properties panel**
-5. Fill in the fields:
-
-${parentFields.map((f, i) => {
-    const hint = f.type === 'reference'
-      ? '→ opens DAM asset picker'
-      : f.type === 'aem-content'
-      ? '→ opens page / link picker'
-      : f.type === 'select' || f.type === 'radio-group'
-      ? `→ choose one of: ${(f.options||[]).map(o=>o.value).join(', ')}`
-      : f.type === 'boolean'
-      ? '→ toggle on / off'
-      : f.type === 'richtext'
-      ? '→ rich text editor opens inline'
-      : f.type === 'number'
-      ? `→ numeric input${f.min !== undefined ? ` (${f.min}–${f.max})` : ''}`
-      : '';
-    return `   ${i + 1}. **${f.label}**${f.required ? ' *(required)*' : ''} ${hint}`;
-  }).join('\n')}
-
-6. Click **✓ Save** in the Properties panel
-7. Click **Publish** in the UE toolbar when ready`;
-
-  const containerSteps = () => `
-**Step 1 — Add the ${title} block**
-
-1. Open your page in **Universal Editor**
-2. Click **+** inside a Section to open the block picker
-3. Select **${title}** from the list
-4. The block is added — click on it to open the **Properties panel**
-${parentFields.length ? `5. Fill in the block config fields:
-
-${parentFields.map((f, i) => {
-    const hint = f.type === 'number'
-      ? `→ numeric input${f.min !== undefined ? ` (${f.min}–${f.max})` : ''}`
-      : f.type === 'boolean' ? '→ toggle on / off'
-      : f.type === 'select'  ? `→ choose: ${(f.options||[]).map(o=>o.value).join(', ')}`
-      : '';
-    return `   ${i + 1}. **${f.label}**${f.required ? ' *(required)*' : ''} ${hint}`;
-  }).join('\n')}
-6. Click **✓ Save**` : `5. This block has no config fields — proceed to adding child items`}
-
----
-
-**Step 2 — Add ${childTitle} items**
-
-1. Click **+** inside the **${title}** block *(not the section + button)*
-2. Select **${childTitle}** from the picker
-3. Click on the new item to open its **Properties panel**
-4. Fill in the item fields:
-
-${childFields.map((f, i) => {
-    const hint = f.type === 'reference'
-      ? '→ opens DAM asset picker'
-      : f.type === 'aem-content'
-      ? '→ opens page / link picker'
-      : f.type === 'richtext'
-      ? '→ rich text editor opens inline'
-      : f.type === 'boolean'
-      ? '→ toggle on / off'
-      : f.type === 'select' || f.type === 'radio-group'
-      ? `→ choose one of: ${(f.options||[]).map(o=>o.value).join(', ')}`
-      : '';
-    return `   ${i + 1}. **${f.label}**${f.required ? ' *(required)*' : ''} ${hint}`;
-  }).join('\n')}
-
-5. Click **✓ Save**
-6. Repeat from step 1 to add more ${childTitle} items
-7. Click **Publish** in the UE toolbar when ready`;
-
-  // ── Variants section ──────────────────────────────────────────────────────
-  const variantsSection = hasVariants ? `## Variants
-
-Select the **${title}** block in UE → open the **Properties panel** → type variant
-names in the **Variants (comma-separated)** field.
-
-Each value maps directly to a CSS class on the block element:
-
-| Variant value | CSS class applied | Example use |
-|---|---|---|
-| \`dark\` | \`.${blockName}.dark\` | Dark background |
-| \`light\` | \`.${blockName}.light\` | Light background |
-| \`compact\` | \`.${blockName}.compact\` | Reduced padding |
-
-Multiple variants are supported: \`dark, compact\` → \`.${blockName}.dark.compact\`
-
-> Add your own variants in \`${blockName}.css\`.
-
----` : `## Variants
-
-This block was scaffolded without variant support.
-To add variants later, add a \`classes\` text field to the model in \`_${blockName}.json\`
-and rebuild with \`npm run build:json\`.
-
----`;
-
-  // ── Full README ───────────────────────────────────────────────────────────
-  return `# ${title} Block
-
-${isContainer
-    ? `Container block — a **${title}** holds one or more **${childTitle}** child items, each authored separately in Universal Editor.`
-    : `Simple block — all fields are authored together in the Universal Editor Properties panel.`}
-
----
-
-## Authoring in Universal Editor
-${isContainer ? containerSteps() : simpleSteps()}
-
----
-
-## Field reference
-
-${isContainer
-    ? [
-        parentFields.length
-          ? buildTable(parentFields, `${title} — config fields`)
-          : `### ${title} — config fields\n\n*No config fields on this block.*`,
-        buildTable(childFields, `${childTitle} — item fields`),
-      ].join('\n\n')
-    : buildTable(parentFields, `${title} — fields`)}
-
----
-
-${variantsSection}
-
----
-
-## Developer notes
-
-\`\`\`
-blocks/${blockName}/
-  ${blockName}.js       ← decorate() — add implementation here
-  ${blockName}.css      ← styles
-  _${blockName}.json    ← UE definitions, models, filters
-  README.md             ← this file
-\`\`\`
-
-**Local preview:**
-\`\`\`bash
-aem up
-# http://localhost:3000
-\`\`\`
-
-**After any JSON change:**
-\`\`\`bash
-npm run build:json && git add . && git commit -m "feat: update ${blockName}" && git push
-\`\`\`
-`;
-}
-
-// ─── Options builder (select / multiselect / radio-group / checkbox-group) ────
-async function collectOptions(rl, fieldName, ind = '') {
-  const options = [];
-  log.blank();
-  log.info(`Define options for ${c.bold}${fieldName}${c.reset}. Leave name blank to finish.`);
-  log.blank();
-
-  while (true) {
-    const name = (await prompt(rl, `${ind}  Option label (blank to finish): `)).trim();
-    if (!name) break;
-
-    // Auto-suggest a value from the label
-    const suggested = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    const raw = (await prompt(rl, `${ind}  Option value [${suggested}]: `)).trim();
-    const value = raw || suggested;
-
-    options.push({ name, value });
-    log.success(`  Option added: ${c.bold}${name}${c.reset} → ${c.dim}${value}${c.reset}`);
-    log.blank();
+    return {
+      content: [{
+        type: 'text',
+        text: `blocks/${name}/\n${details}`,
+      }],
+    };
   }
+);
 
-  if (options.length === 0) {
-    options.push({ name: 'Option 1', value: 'option-1' }, { name: 'Option 2', value: 'option-2' });
-    log.warn('No options entered — added placeholders. Update them in component-models.json.');
+// ── Tool 7: read_component_filters ───────────────────────────────────────────
+server.tool(
+  'read_component_filters',
+  'Read the component-filters.json to see which blocks are in the section filter',
+  {},
+  async () => {
+    const filePath = path.join(EDS_PROJECT, 'component-filters.json');
+    if (!fs.existsSync(filePath)) {
+      return { content: [{ type: 'text', text: 'component-filters.json not found' }] };
+    }
+    const content = fs.readFileSync(filePath, 'utf8');
+    return { content: [{ type: 'text', text: content }] };
   }
+);
 
-  log.info(`${options.length} option(s) defined for "${fieldName}".`);
-  log.blank();
-  return options;
-}
-
-// ─── Default value collector ──────────────────────────────────────────────────
-// Types that support a meaningful default value
-const DEFAULT_VALUE_TYPES = new Set([
-  'text', 'textarea', 'richtext', 'number', 'boolean',
-  'select', 'multiselect', 'radio-group', 'checkbox-group',
-  'aem-tag',
-]);
-
-async function collectDefaultValue(rl, field, ind = '') {
-  if (!DEFAULT_VALUE_TYPES.has(field.type)) return;
-
-  let question = '';
-
-  switch (field.type) {
-    case 'boolean':
-      question = `${ind}  Default value for "${field.name}" (true / false) [false]: `;
-      break;
-    case 'number':
-      question = `${ind}  Default number for "${field.name}" (Enter to skip): `;
-      break;
-    case 'select':
-    case 'radio-group': {
-      if (field.options?.length) {
-        const opts = field.options.map((o) => `${c.cyan}${o.value}${c.reset}`).join(' | ');
-        console.log(`\n  ${c.dim}Available values: ${opts}${c.reset}`);
+// ── Tool 8: add_to_section_filter ────────────────────────────────────────────
+server.tool(
+  'add_to_section_filter',
+  'Add a block name to the section entry in component-filters.json',
+  {
+    name: z.string().describe('Block name to add to section filter e.g. "hero"'),
+  },
+  async ({ name }) => {
+    const filePath = path.join(EDS_PROJECT, 'component-filters.json');
+    if (!fs.existsSync(filePath)) {
+      return { content: [{ type: 'text', text: 'component-filters.json not found' }] };
+    }
+    try {
+      const json    = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      const section = json.find(f => f.id === 'section');
+      if (!section) {
+        return { content: [{ type: 'text', text: 'No section entry found in component-filters.json' }] };
       }
-      question = `${ind}  Default selected value for "${field.name}" (Enter to skip): `;
-      break;
-    }
-    case 'multiselect':
-    case 'checkbox-group': {
-      if (field.options?.length) {
-        const opts = field.options.map((o) => `${c.cyan}${o.value}${c.reset}`).join(' | ');
-        console.log(`\n  ${c.dim}Available values: ${opts}${c.reset}`);
+      if (section.components.includes(name)) {
+        return { content: [{ type: 'text', text: `"${name}" already in section filter` }] };
       }
-      question = `${ind}  Default selected values for "${field.name}" (comma-separated, Enter to skip): `;
-      break;
-    }
-    default:
-      question = `${ind}  Default value for "${field.name}" (Enter to skip): `;
-  }
-
-  const raw = (await prompt(rl, question)).trim();
-  if (!raw) return;
-
-  // Validate boolean
-  if (field.type === 'boolean') {
-    field.defaultValue = raw === 'true' ? 'true' : 'false';
-    return;
-  }
-
-  // Validate number
-  if (field.type === 'number') {
-    if (isNaN(Number(raw))) {
-      log.warn(`"${raw}" is not a valid number — skipping default.`);
-      return;
-    }
-    const num = Number(raw);
-    if (field.min !== undefined && num < field.min) {
-      log.warn(`"${raw}" is below min:${field.min} — skipping default.`);
-      return;
-    }
-    if (field.max !== undefined && num > field.max) {
-      log.warn(`"${raw}" is above max:${field.max} — skipping default.`);
-      return;
+      section.components.push(name);
+      fs.writeFileSync(filePath, JSON.stringify(json, null, 2) + '\n', 'utf8');
+      return { content: [{ type: 'text', text: `✔ Added "${name}" to section filter in component-filters.json` }] };
+    } catch (e) {
+      return { content: [{ type: 'text', text: 'Error: ' + e.message }] };
     }
   }
+);
 
-  // Validate select/radio must match one of the options
-  if ((field.type === 'select' || field.type === 'radio-group') && field.options?.length) {
-    const valid = field.options.map((o) => o.value);
-    if (!valid.includes(raw)) {
-      log.warn(`"${raw}" is not one of the defined option values — skipping default.`);
-      return;
-    }
-  }
-
-  // Validate multiselect/checkbox — each value must match an option
-  if ((field.type === 'multiselect' || field.type === 'checkbox-group') && field.options?.length) {
-    const valid  = new Set(field.options.map((o) => o.value));
-    const parts  = raw.split(',').map((s) => s.trim()).filter(Boolean);
-    const bad    = parts.filter((p) => !valid.has(p));
-    if (bad.length) {
-      log.warn(`Unknown option value(s): ${bad.join(', ')} — skipping default.`);
-      return;
-    }
-  }
-
-  field.defaultValue = raw;
-  log.info(`Default set: ${c.cyan}${raw}${c.reset}`);
-  log.blank();
-}
-
-// ─── Optional validation prompt ───────────────────────────────────────────────
-async function collectValidation(rl, field, indent = '') {
-  const available = VALIDATIONS[field.type] || [];
-  if (!available.length) return;
-  const hasExtras = await confirm(rl, `${indent}Add validation / hints for "${field.name}"?`, false);
-  if (!hasExtras) return;
-  log.blank();
-  if (available.includes('required'))    { if (await confirm(rl, `${indent}  Required?`, false)) field.required = true; }
-  if (available.includes('readOnly'))    { if (await confirm(rl, `${indent}  Read-only?`, false)) field.readOnly = true; }
-  if (available.includes('hidden'))      { if (await confirm(rl, `${indent}  Hidden?`, false)) field.hidden = true; }
-  if (available.includes('description')) { const d = (await prompt(rl, `${indent}  Helper text (Enter to skip): `)).trim(); if (d) field.description = d; }
-  if (available.includes('minLength'))   { const v = (await prompt(rl, `${indent}  Min length (Enter to skip): `)).trim(); if (v && !isNaN(v)) field.minLength = +v; }
-  if (available.includes('maxLength'))   { const v = (await prompt(rl, `${indent}  Max length (Enter to skip): `)).trim(); if (v && !isNaN(v)) field.maxLength = +v; }
-  if (available.includes('min'))         { const v = (await prompt(rl, `${indent}  Min (Enter to skip): `)).trim(); if (v) field.min = field.type === 'number' ? +v : v; }
-  if (available.includes('max'))         { const v = (await prompt(rl, `${indent}  Max (Enter to skip): `)).trim(); if (v) field.max = field.type === 'number' ? +v : v; }
-  if (available.includes('step'))        { const v = (await prompt(rl, `${indent}  Step (Enter to skip): `)).trim(); if (v && !isNaN(v)) field.step = +v; }
-  if (available.includes('rootPath'))    { const v = (await prompt(rl, `${indent}  Root path (Enter to skip): `)).trim(); if (v) field.rootPath = v; }
-  if (available.includes('customErrorMsg')) { const v = (await prompt(rl, `${indent}  Custom error message (Enter to skip): `)).trim(); if (v) field.customErrorMsg = v; }
-  log.blank();
-}
-
-// ─── Condition builder ────────────────────────────────────────────────────────
-async function collectConditions(rl, fields) {
-  // Only fields that can CONTROL (have known values)
-  const canControl = fields.filter(f =>
-    f.type !== 'tab' &&
-    ['select', 'radio-group', 'boolean'].includes(f.type)
-  );
-  if (canControl.length === 0) return; // No controllable fields
-
-  // Only fields that can RECEIVE conditions (exclude tab fields)
-  const eligible = fields.filter(f => f.type !== 'tab');
-  if (eligible.length < 2) return;
-
-  const addConds = await confirm(rl, `Add conditional visibility to any fields?`, false);
-  if (!addConds) return;
-  log.blank();
-
-  while (true) {
-    // Show eligible fields with existing conditions marked
-    log.info('Which field should show/hide conditionally?');
-    eligible.forEach((f, i) => {
-      const tag = f.condition ? ` ${c.cyan}(has condition)${c.reset}` : '';
-      console.log(`    ${c.dim}${i + 1}.${c.reset}  ${c.cyan}${f.name}${c.reset} (${f.type})${tag}`);
-    });
-    console.log(`    ${c.dim}0.${c.reset}  Done`);
-    log.blank();
-
-    const sel = (await prompt(rl, `Pick field number (0 to finish): `)).trim();
-    if (!sel || sel === '0') break;
-
-    const targetField = eligible[parseInt(sel, 10) - 1];
-    if (!targetField) { log.warn('Invalid selection — try again.'); continue; }
-
-    // Controlling field — must be select/radio/boolean and not the target itself
-    const controllers = canControl.filter(f => f.name !== targetField.name);
-    if (!controllers.length) {
-      log.warn('No select/boolean fields available to control this field.');
-      continue;
-    }
-
-    log.blank();
-    log.info(`Based on which field:`);
-    controllers.forEach((f, i) => {
-      console.log(`    ${c.dim}${i + 1}.${c.reset}  ${c.cyan}${f.name}${c.reset} (${f.type})`);
-    });
-    log.blank();
-
-    const ctrlSel = (await prompt(rl, `Pick controlling field: `)).trim();
-    const ctrl    = controllers[parseInt(ctrlSel, 10) - 1];
-    if (!ctrl) { log.warn('Invalid selection.'); continue; }
-
-    // Operator
-    log.blank();
-    console.log(`    ${c.dim}1.${c.reset}  === equals one value`);
-    console.log(`    ${c.dim}2.${c.reset}  or  equals any of multiple values`);
-    console.log(`    ${c.dim}3.${c.reset}  !== not equal to`);
-    log.blank();
-    const opSel = (await prompt(rl, `Condition type [1]: `)).trim() || '1';
-
-    // Values
-    let values = [];
-    log.blank();
-
-    if (ctrl.type === 'boolean') {
-      console.log(`    ${c.dim}1.${c.reset}  true`);
-      console.log(`    ${c.dim}2.${c.reset}  false`);
-      log.blank();
-      const v = (await prompt(rl, `Value: `)).trim();
-      values = [v === '2' ? 'false' : 'true'];
-    } else if (ctrl.options?.length) {
-      log.info(`Available values for "${ctrl.name}":`);
-      ctrl.options.forEach((o, i) => {
-        console.log(`    ${c.dim}${i + 1}.${c.reset}  ${c.cyan}${o.name}${c.reset} → ${o.value}`);
-      });
-      log.blank();
-      const v = (await prompt(rl, `Select values (comma-separated numbers): `)).trim();
-      values = v.split(',').map(n => {
-        const idx = parseInt(n.trim(), 10) - 1;
-        return ctrl.options?.[idx]?.value;
-      }).filter(Boolean);
-    }
-
-    if (!values.length) { log.warn('No values selected — skipping.'); continue; }
-
-    // Build JSONLogic condition
-    let condition;
-    if (opSel === '3') {
-      condition = { '!==': [{ var: ctrl.name }, values[0]] };
-    } else if (values.length === 1) {
-      condition = { '===': [{ var: ctrl.name }, values[0]] };
-    } else {
-      condition = { or: values.map(v => ({ '===': [{ var: ctrl.name }, v] })) };
-    }
-
-    targetField.condition = condition;
-    log.success(`"${targetField.name}" shows when "${ctrl.name}" is ${values.join(' OR ')}`);
-    log.blank();
-  }
-}
-
-// ─── Field collector with tab grouping ───────────────────────────────────────
-async function collectFieldsWithTabs(rl, context) {
-  log.info(`Define tab groups for ${c.bold}${context}${c.reset}. Each tab appears as a panel section in UE.`);
-  log.blank();
-
-  const allFields = [];
-  let   tabCount  = 0;
-
-  while (true) {
-    tabCount++;
-    log.divider();
-
-    const tabLabelIn = (await prompt(rl, `Tab ${tabCount} name (e.g. Media, Links, Body): `)).trim();
-    if (!tabLabelIn) { log.warn('Tab name cannot be blank.'); tabCount--; continue; }
-
-    const tabName  = `tab${tabCount}`;
-    const tabLabel = tabLabelIn;
-
-    allFields.push({ name: tabName, label: tabLabel, type: 'tab' });
-    log.success(`Tab "${tabLabel}" created — define its fields:`);
-    log.blank();
-
-    const tabFields = await collectFields(rl, `"${tabLabel}" tab`);
-    allFields.push(...tabFields);
-
-    log.blank();
-    const addMore = await confirm(rl, `Add another tab?`, false);
-    if (!addMore) break;
-    log.blank();
-  }
-
-  log.blank();
-  log.info(`${tabCount} tab(s) defined with ${allFields.filter(f => f.type !== 'tab').length} total fields.`);
-  log.blank();
-  return allFields;
-}
-
-// ─── Field collector ──────────────────────────────────────────────────────────
-async function collectFields(rl, context, depth = 0) {
-  const fields = [];
-  const ind    = depth > 0 ? '    ' : '';
-  log.info(`Define ${c.bold}${context}${c.reset} fields. Leave name blank to finish.`);
-  log.blank();
-
-  while (true) {
-    const name = (await prompt(rl, `${ind}Field name (camelCase, blank to finish): `)).trim();
-    if (!name) break;
-    if (!/^[a-zA-Z][a-zA-Z0-9]*$/.test(name)) { log.warn('camelCase only — no hyphens or underscores.'); continue; }
-
-    const defLabel = toTitleCase(name.replace(/([A-Z])/g, '-$1').toLowerCase());
-    const label    = (await prompt(rl, `${ind}Label for "${name}" [${defLabel}]: `)).trim() || defLabel;
-
-    printFieldTypes();
-    const typeIn = (await prompt(rl, `${ind}Type (name or number) [text]: `)).trim();
-    let type = 'text';
-    if (typeIn) { const byNum = ALL_FIELD_KEYS[parseInt(typeIn, 10) - 1]; type = byNum || (FIELD_TYPES[typeIn] ? typeIn : 'text'); }
-
-    const field = { name, label, type };
-
-    // multi: true option for eligible types
-    if (FIELD_TYPES[type]?.multi) {
-      const isMulti = await confirm(rl, `${ind}Allow multiple values (multi: true)?`, false);
-      if (isMulti) field.multi = true;
-    }
-
-    // Options builder for select / multiselect / radio-group / checkbox-group
-    if (OPTION_TYPES.has(type)) {
-      field.options = await collectOptions(rl, name, ind);
-    }
-
-    // Default value
-    await collectDefaultValue(rl, field, ind);
-
-    // Container — collect sub-fields
-    if (type === 'container') {
-      if (depth >= 1) {
-        log.warn('UE does not support nested containers — skipping sub-fields.');
-        field.subFields = [];
-      } else {
-        log.blank();
-        console.log(`  ${c.cyan}  ┌─ Container "${name}" — define sub-fields ─────────────────${c.reset}`);
-        field.subFields = await collectFields(rl, `${name} sub-fields`, depth + 1);
-        console.log(`  ${c.cyan}  └─ End of "${name}" ──────────────────────────────────────────${c.reset}`);
-        log.blank();
-      }
-    }
-
-    // Optional validation
-    await collectValidation(rl, field, ind);
-
-    fields.push(field);
-
-    // Summary
-    const extras = [
-      field.multi         && 'multi',
-      field.required      && 'required',
-      field.readOnly      && 'readOnly',
-      field.hidden        && 'hidden',
-      field.options       && `${field.options.length} options`,
-      field.defaultValue  !== undefined && `default:"${field.defaultValue}"`,
-      field.minLength     !== undefined && `minLen:${field.minLength}`,
-      field.maxLength     !== undefined && `maxLen:${field.maxLength}`,
-      field.min           !== undefined && `min:${field.min}`,
-      field.max           !== undefined && `max:${field.max}`,
-      field.step          !== undefined && `step:${field.step}`,
-      field.rootPath      && `rootPath:${field.rootPath}`,
-      field.description   && `hint:"${field.description}"`,
-    ].filter(Boolean);
-
-    if (type === 'container') {
-      log.success(`Added: ${c.bold}${name}${c.reset}  container  sub-fields: ${c.dim}${(field.subFields||[]).map((s)=>s.name).join(', ')||'none'}${c.reset}`);
-    } else {
-      log.success(`Added: ${c.bold}${name}${c.reset}  ${c.cyan}${type}${c.reset}${extras.length ? `  ${c.yellow}[${extras.join(', ')}]${c.reset}` : ''}`);
-    }
-    log.blank();
-  }
-
-  if (!fields.length && depth === 0) { fields.push({ name: 'text', label: 'Text', type: 'text' }); log.warn('No fields — defaulted to a single "text" field.'); }
-  return fields;
-}
-
-// ─── Consolidated block JSON writer ──────────────────────────────────────────
-// Generates a single blocks/<name>/_<name>.json containing
-// definitions, models and filters — matching the boilerplate pattern.
-// `npm run build:json` (merge-json-cli) assembles these into global files.
-
-// ─── JSON + README — section wrapper ─────────────────────────────────────────
-function genSectionWrapperJSON(blockName, labelName, labelLabel, labelRequired, customErr, filterComponents, companionName, companionFields) {
-  const labelField = {
-    component: 'text',
-    name:      labelName,
-    label:     labelLabel,
-    valueType: 'string',
-    required:  labelRequired,
-  };
-  if (customErr) labelField.validation = { customErrorMsg: customErr };
-
-  // companion block auto-included in filter so it can be placed inside each tab
-  const allFilterComponents = companionName
-    ? [...filterComponents, companionName]
-    : filterComponents;
-
-  const definitions = [{
-    title: toTitleCase(blockName),
-    id:    blockName,
-    plugins: {
-      xwalk: {
-        page: {
-          resourceType: 'core/franklin/components/section/v1/section',
-          template: {
-            name:        toTitleCase(blockName),
-            model:       blockName,
-            filter:      blockName,
-            [labelName]: toTitleCase(labelName),
-          },
-        },
-      },
-    },
-  }];
-
-  const models = [{ id: blockName, fields: [labelField] }];
-
-  // Companion block — tab navigation bar (block/v1/block)
-  if (companionName && companionFields?.length) {
-    definitions.push({
-      title: toTitleCase(companionName),
-      id:    companionName,
-      plugins: {
-        xwalk: {
-          page: {
-            resourceType: 'core/franklin/components/block/v1/block',
-            template: {
-              name:  toTitleCase(companionName),
-              model: companionName,
-            },
-          },
-        },
-      },
-    });
-    models.push({ id: companionName, fields: buildFieldSchema(companionFields) });
-  }
-
-  return {
-    definitions,
-    models,
-    filters: [{ id: blockName, components: allFilterComponents }],
-  };
-}
-
-function genSectionWrapperReadme(blockName, labelName, labelLabel, filterComponents, companionName) {
-  const title     = toTitleCase(blockName);
-  const compTitle = companionName ? toTitleCase(companionName) : null;
-  return `# ${title}
-
-Section wrapper — each tab is a **section** in UE. Add as many sections as tabs needed.
-${companionName ? `The **${compTitle}** block inside each section renders the tab navigation bar.` : ''}
-
----
-
-## Authoring in Universal Editor
-
-**Step 1 — Add Tab 1**
-
-1. Open page in **Universal Editor**
-2. Click **+** at section level → select **${title}**
-3. Click on the new section → Properties panel:
-\`\`\`
-${labelLabel} *  [ Products ]   ← required — sets the tab name
-\`\`\`
-4. Enter tab label → click **✓ Save**
-${companionName ? `5. Click **+** INSIDE the section → add **${compTitle}**\n   → Sets position of tab navigation bar` : ''}
-
----
-
-**Step 2 — Add content blocks inside Tab 1**
-
-Click **+** INSIDE the section and add any allowed block:
-
-${filterComponents.map(b => `- ${toTitleCase(b)}`).join('\n')}
-
----
-
-**Step 3 — Add more tabs**
-
-Repeat Step 1 and Step 2 for each tab:
-- Click **+** at section level → **${title}**
-- Set a different tab label
-- ${companionName ? `Add **${compTitle}** block` : 'Add content'}
-- Add content blocks
-
-Each section = one tab. No limit on number of tabs.
-
----
-
-**Step 4 — Publish**
-
-Click **Publish** in the UE toolbar.
-
----
-
-## Resulting content tree
-
-\`\`\`
-Page → Main
-  ├── Section (${blockName}, ${labelName}: "Products")
-  │     ${companionName ? `├── ${compTitle} block` : ''}
-  │     └── content blocks
-  ├── Section (${blockName}, ${labelName}: "Services")
-  │     ${companionName ? `├── ${compTitle} block` : ''}
-  │     └── content blocks
-  └── Section (${blockName}, ${labelName}: "About")
-        ${companionName ? `├── ${compTitle} block` : ''}
-        └── content blocks
-\`\`\`
-
----
-
-## Developer notes
-
-\`\`\`bash
-npm run build:json && git add . && git push
-\`\`\`
-`;
-}
-
-function genBlockJSON(blockName, isContainer, parentFields, childName, childFields) {
-  // ── models ───────────────────────────────────────────────────────────────────
-  const models      = [];
-  const parentSchema = buildFieldSchema(parentFields);
-  // classes/variants field is in parentFields if developer opted in during scaffolding
-  models.push({ id: blockName, fields: parentSchema });
-  if (isContainer) {
-    models.push({ id: childName, fields: buildFieldSchema(childFields) });
-  }
-
-  // ── definitions ──────────────────────────────────────────────────────────────
-  // Block-level JSON uses flat definitions array per official Adobe docs:
-  // https://experienceleague.adobe.com/en/docs/experience-manager-cloud-service/
-  // content/implementing/developing/universal-editor/field-types
-  // The global component-definition.json uses groups.components format,
-  // but the per-block _blockname.json uses flat definitions array.
-  const template = { name: toTitleCase(blockName), model: blockName };
-  if (isContainer) {
-    template.filter = blockName;
-  }
-
-  const definitions = [
-    {
-      title: toTitleCase(blockName),
-      id:    blockName,
-      plugins: {
-        xwalk: {
-          page: {
-            resourceType: 'core/franklin/components/block/v1/block',
-            template,
-          },
-        },
-      },
-    },
-  ];
-
-  // Child item needs its own definition with block/item resourceType
-  if (isContainer) {
-    definitions.push({
-      title: toTitleCase(childName),
-      id:    childName,
-      plugins: {
-        xwalk: {
-          page: {
-            resourceType: 'core/franklin/components/block/v1/block/item',
-            template: {
-              name:  toTitleCase(childName),
-              model: childName,
-            },
-          },
-        },
-      },
-    });
-  }
-
-  // ── filters ──────────────────────────────────────────────────────────────────
-  // Section filter is NOT generated here — it is a project-level concern
-  // maintained in the boilerplate's central component-filters.json.
-  // Only the container filter is block-owned (restricts what goes inside this block).
-  const filters = [];
-  if (isContainer) {
-    filters.push({ id: blockName, components: [childName] });
-  }
-
-  return { definitions, models, filters };
-}
-
-function writeBlockJSON(blockDir, blockName, blockJSON, dryRun) {
-  const label   = `blocks/${blockName}/_${blockName}.json`;
-  const content = JSON.stringify(blockJSON, null, 2) + '\n';
-  writeFile(path.join(blockDir, `_${blockName}.json`), content, label, dryRun);
-}
-
-// ─── File writer (dry-run aware) ──────────────────────────────────────────────
-function writeFile(filePath, content, label, dryRun) {
-  if (!dryRun && fs.existsSync(filePath)) { log.warn(`${label} already exists — skipped.`); return; }
-  if (dryRun) {
-    log.dry(`Would create: ${label}`);
-    console.log(`\n${c.dim}${'─'.repeat(60)}${c.reset}`);
-    content.split('\n').slice(0, 20).forEach((l) => console.log(`  ${c.dim}${l}${c.reset}`));
-    if (content.split('\n').length > 20) console.log(`  ${c.dim}... (${content.split('\n').length - 20} more lines)${c.reset}`);
-    console.log(`${c.dim}${'─'.repeat(60)}${c.reset}\n`);
-    return;
-  }
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, content, 'utf8');
-  log.success(`Created  ${label}`);
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// COMMAND: create
-// ══════════════════════════════════════════════════════════════════════════════
-async function cmdCreate(rl, cwd, argName, dryRun) {
-  if (dryRun) log.warn('DRY RUN — no files will be written.\n');
-
-  let blockName = argName;
-  if (!blockName) {
-    blockName = (await prompt(rl, `Block name (kebab-case): `)).trim().toLowerCase().replace(/\s+/g, '-');
-  }
-  if (!blockName || !isValidName(blockName)) { log.error('Invalid block name.'); rl.close(); process.exit(1); }
-
-  log.divider();
-  log.info(`Block: ${c.bold}${blockName}${c.reset}`);
-  log.info(`Dir  : ${c.dim}${cwd}${c.reset}`);
-  log.divider();
-
-  // Block type
-  log.blank();
-  console.log(`  ${c.bold}Block type:${c.reset}`);
-  console.log(`    ${c.dim}1.${c.reset} ${c.cyan}Simple${c.reset}              ${c.dim}Fixed fields — hero, banner, teaser${c.reset}`);
-  console.log(`    ${c.dim}2.${c.reset} ${c.cyan}Simple with tabs${c.reset}    ${c.dim}Fixed fields grouped into UE panel tabs${c.reset}`);
-  console.log(`    ${c.dim}3.${c.reset} ${c.cyan}Container${c.reset}           ${c.dim}Children with different fields — accordion, tabs${c.reset}`);
-  console.log(`    ${c.dim}4.${c.reset} ${c.cyan}Container with tabs${c.reset} ${c.dim}Container where parent config has tab groups${c.reset}`);
-  console.log(`    ${c.dim}5.${c.reset} ${c.cyan}Section wrapper${c.reset}     ${c.dim}Section as a tab panel — any blocks inside${c.reset}`);
-  log.blank();
-  const typeIn         = (await prompt(rl, `Type [1]: `)).trim();
-  const isContainer    = typeIn === '3' || typeIn === '4' || typeIn.toLowerCase().startsWith('container');
-  const isSectionWrap  = typeIn === '5' || typeIn.toLowerCase() === 'section wrapper';
-  const useTabs        = typeIn === '2' || typeIn === '4'
-    || typeIn.toLowerCase() === 'simple with tabs'
-    || typeIn.toLowerCase() === 'container with tabs';
-  log.blank();
-
-  // ── SECTION WRAPPER FLOW ────────────────────────────────────────────────────
-  if (isSectionWrap) {
-    log.section('Section wrapper — Tab Panel config');
-    log.info(`This creates a section-level wrapper using ${c.cyan}section/v1/section${c.reset} resourceType.`);
-    log.info(`Authors can add ANY existing blocks inside each section tab.`);
-    log.blank();
-
-    // Tab label field
-    const labelName  = (await prompt(rl, `Tab label field name [tab-label]: `)).trim() || 'tab-label';
-    const labelLabel = (await prompt(rl, `Tab label field label [Tab Label]: `)).trim() || 'Tab Label';
-    const labelReq   = await confirm(rl, `Required?`, true);
-    const customErr  = (await prompt(rl, `Custom error message (Enter to skip): `)).trim();
-    log.blank();
-
-    // Scan existing blocks for filter
-    const blocksDir   = path.join(cwd, 'blocks');
-    const allBlocks   = fs.existsSync(blocksDir)
-      ? fs.readdirSync(blocksDir, { withFileTypes: true })
-          .filter(d => d.isDirectory())
-          .map(d => d.name)
-          .filter(name => fs.existsSync(path.join(blocksDir, name, `${name}.js`)))
-          .filter(name => name !== blockName)
-      : [];
-
-    let filterComponents = [];
-    if (allBlocks.length) {
-      log.info(`Which blocks can be added inside each section tab?`);
-      log.blank();
-      allBlocks.forEach((name, i) => {
-        console.log(`    ${c.dim}${String(i + 1).padStart(2)}.${c.reset}  ${c.cyan}${name}${c.reset}`);
-      });
-      log.blank();
-      const sel = (await prompt(rl, `Enter numbers comma-separated (e.g. 1,3,5) or "all": `)).trim();
-      if (sel.toLowerCase() === 'all') {
-        filterComponents = [...allBlocks];
-      } else {
-        sel.split(',').forEach(s => {
-          const n = parseInt(s.trim(), 10);
-          if (n > 0 && n <= allBlocks.length) filterComponents.push(allBlocks[n - 1]);
-          else if (allBlocks.includes(s.trim())) filterComponents.push(s.trim());
-        });
-      }
-    } else {
-      log.warn('No existing blocks found. Enter block names manually (comma-separated):');
-      const manual = (await prompt(rl, `Block names: `)).trim();
-      filterComponents = manual.split(',').map(s => s.trim()).filter(Boolean);
-    }
-
-    log.blank();
-    log.info(`Filter: ${c.cyan}${filterComponents.join(', ')}${c.reset}`);
-    log.blank();
-
-    // Companion navigation block
-    log.divider();
-    log.info(`A companion navigation block renders the tab nav bar inside each section.`);
-    log.info(`Example: "tab-list" block with List Position (left/center) field.`);
-    log.blank();
-    const wantsCompanion = await confirm(rl, `Create a companion navigation block?`, true);
-    let companionName = '', companionFields = [];
-
-    if (wantsCompanion) {
-      const compSugg  = `${blockName}-list`;
-      const compIn    = (await prompt(rl, `Companion block name [${compSugg}]: `)).trim().toLowerCase().replace(/\s+/g, '-');
-      companionName   = compIn || compSugg;
-      log.blank();
-      log.info(`Define fields for ${c.bold}${companionName}${c.reset} (e.g. listPosition select, theme select)`);
-      log.blank();
-      companionFields = await collectFields(rl, `${companionName} fields`);
-    }
-
-    rl.close();
-
-    // Generate section wrapper JSON
-    const swJSON = genSectionWrapperJSON(blockName, labelName, labelLabel, labelReq, customErr, filterComponents, companionName, companionFields);
-    const swDir  = path.join(cwd, 'blocks', blockName);
-
-    writeFile(path.join(swDir, `${blockName}.js`),  genSimpleBlockJS(blockName),  `blocks/${blockName}/${blockName}.js`,  dryRun);
-    writeFile(path.join(swDir, `${blockName}.css`), genBlockCSS(blockName),       `blocks/${blockName}/${blockName}.css`, dryRun);
-    writeFile(path.join(swDir, 'README.md'),         genSectionWrapperReadme(blockName, labelName, labelLabel, filterComponents, companionName), `blocks/${blockName}/README.md`, dryRun);
-    writeBlockJSON(swDir, blockName, swJSON, dryRun);
-
-    log.blank(); log.divider();
-    const prefix = dryRun ? `${c.yellow}~ DRY RUN${c.reset} ` : `${c.green}✔${c.reset} `;
-    console.log(`\n  ${prefix}${c.bold}"${blockName}" ${dryRun ? 'would be' : 'scaffolded!'} (section wrapper)${c.reset}\n`);
-    console.log(`  ${c.dim}Next steps:${c.reset}`);
-    console.log(`    1. Add ${c.bold}"${blockName}"${c.reset} to the ${c.cyan}section${c.reset} entry in ${c.bold}component-filters.json${c.reset}`);
-    console.log(`    2. ${c.bold}npm run build:json${c.reset} → assemble global JSON files`);
-    console.log(`    3. ${c.bold}git add . && git commit -m "feat: ${blockName}" && git push${c.reset}\n`);
-    return;
-  }
-  // ── END SECTION WRAPPER ─────────────────────────────────────────────────────
-
-  // Parent fields — with or without tab grouping based on block type
-  log.section(isContainer ? `Phase 1 — Parent config fields` : `Define block fields`);
-  const parentFields = useTabs
-    ? await collectFieldsWithTabs(rl, isContainer ? `${blockName} config` : blockName, true)
-    : await collectFields(rl, isContainer ? `${blockName} config` : blockName);
-
-  // Container: child setup
-  let childName = '', childFields = [];
-  if (isContainer) {
-    log.divider();
-    log.section(`Phase 2 — Child item`);
-    const sugg    = `${blockName}-item`;
-    const childIn = (await prompt(rl, `Child item name [${sugg}]: `)).trim().toLowerCase().replace(/\s+/g, '-');
-    childName     = childIn || sugg;
-    if (!isValidName(childName)) { log.error(`Invalid child name.`); rl.close(); process.exit(1); }
-    log.blank();
-    log.info(`Child: ${c.bold}${childName}${c.reset}`);
-    log.blank();
-    childFields = await collectFields(rl, `${childName} fields`);
-  }
-
-  // Variants — collect as select options, push classes field into parentFields
-  log.divider();
-  const needsVariants = await confirm(rl, `Does this block need variants? ${c.dim}(e.g. Grid, Carousel, Dark)${c.reset}`, false);
-  if (needsVariants) {
-    log.blank();
-    log.info(`Define variant options — each becomes a selectable CSS class in UE.`);
-    log.blank();
-    const variantOptions = await collectOptions(rl, 'classes', '  ');
-    if (variantOptions.length) {
-      const defaultVal = variantOptions[0].value;
-      parentFields.push({
-        name:         'classes',
-        label:        'Layout Variant',
-        type:         'select',
-        options:      variantOptions,
-        defaultValue: defaultVal,
-      });
-      log.info(`Variants added as ${c.cyan}classes${c.reset} select field with ${variantOptions.length} option(s).`);
-    } else {
-      log.warn('No options defined — skipping variants.');
-    }
-    log.blank();
-  }
-
-  // Conditions — after all fields (including classes) are defined
-  log.divider();
-  const allFieldsForConditions = [...parentFields];
-  if (isContainer) allFieldsForConditions.push(...childFields);
-  await collectConditions(rl, parentFields);
-
-  rl.close();
-
-  // Write files
-  log.blank(); log.divider(); log.blank();
-
-  const dir = path.join(cwd, 'blocks', blockName);
-
-  // Minimal lint-free JS based on block type
-  const jsContent = isContainer
-    ? genContainerBlockJS(blockName, childName)
-    : genSimpleBlockJS(blockName);
-
-  writeFile(path.join(dir, `${blockName}.js`),  jsContent,              `blocks/${blockName}/${blockName}.js`,  dryRun);
-  writeFile(path.join(dir, `${blockName}.css`), genBlockCSS(blockName), `blocks/${blockName}/${blockName}.css`, dryRun);
-  writeFile(path.join(dir, 'README.md'), genReadme(blockName, isContainer, parentFields, childName, childFields), `blocks/${blockName}/README.md`, dryRun);
-
-  const blockJSON = genBlockJSON(blockName, isContainer, parentFields, childName, childFields);
-  writeBlockJSON(dir, blockName, blockJSON, dryRun);
-
-  // Summary
-  log.blank(); log.divider();
-  const prefix   = dryRun ? `${c.yellow}~ DRY RUN${c.reset} ` : `${c.green}✔${c.reset} `;
-  const typeLabel = isContainer && useTabs ? `container with tabs → ${childName}`
-                  : isContainer            ? `container → ${childName}`
-                  : useTabs                ? 'simple with tabs'
-                  :                         'simple';
-  console.log(`\n  ${prefix}${c.bold}"${blockName}" ${dryRun ? 'would be' : 'scaffolded!'} (${typeLabel})${c.reset}\n`);
-  if (!dryRun) {
-    console.log(`  ${c.dim}Files created:${c.reset}`);
-    console.log(`    ${c.cyan}blocks/${blockName}/${blockName}.js${c.reset}`);
-    console.log(`    ${c.cyan}blocks/${blockName}/${blockName}.css${c.reset}`);
-    console.log(`    ${c.cyan}blocks/${blockName}/README.md${c.reset}`);
-    console.log(`    ${c.cyan}blocks/${blockName}/_${blockName}.json${c.reset}  ${c.dim}(definitions + models + filters)${c.reset}`);
-    console.log(`\n  ${c.dim}Next steps:${c.reset}`);
-    console.log(`    1. Add ${c.bold}"${blockName}"${c.reset} to the ${c.cyan}section${c.reset} entry in your project's ${c.bold}component-filters.json${c.reset}`);
-    console.log(`    2. ${c.bold}npm run build:json${c.reset} → assemble global JSON files`);
-    console.log(`    3. ${c.bold}aem up${c.reset} → http://localhost:3000`);
-    console.log(`    4. Add block in Universal Editor`);
-    console.log(`    5. Implement ${c.bold}blocks/${blockName}/${blockName}.js${c.reset}\n`);
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// COMMAND: remove
-// ══════════════════════════════════════════════════════════════════════════════
-async function cmdRemove(rl, cwd, blockName, dryRun) {
-  log.title('Remove Block');
-  if (!blockName) { blockName = (await prompt(rl, `Block name to remove: `)).trim().toLowerCase(); }
-  if (!isValidName(blockName)) { log.error('Invalid block name.'); rl.close(); process.exit(1); }
-
-  const blockDir = path.join(cwd, 'blocks', blockName);
-  if (!fs.existsSync(blockDir)) { log.error(`blocks/${blockName}/ does not exist.`); rl.close(); process.exit(1); }
-
-  if (!dryRun) {
-    log.warn(`This will delete blocks/${blockName}/ including all JS, CSS, README and block-level JSON files.`);
-    const ok = await confirm(rl, 'Are you sure?', false);
-    if (!ok) { log.info('Cancelled.'); rl.close(); return; }
-  }
-
-  rl.close();
-  log.divider();
-
-  if (dryRun) {
-    const files = fs.readdirSync(blockDir).map((f) => `blocks/${blockName}/${f}`);
-    log.dry(`Would delete blocks/${blockName}/ (${files.length} file(s)):`);
-    files.forEach((f) => console.log(`  ${c.dim}  ${f}${c.reset}`));
-  } else {
-    fs.rmSync(blockDir, { recursive: true, force: true });
-    log.success(`Deleted  blocks/${blockName}/`);
-  }
-
-  log.blank();
-  log.info(`Run ${c.bold}npm run build:json${c.reset} to rebuild the global JSON files.`);
-  log.blank();
-  dryRun ? log.dry('Dry run complete — nothing deleted.') : log.success(`"${blockName}" removed.`);
-  log.blank();
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// COMMAND: list
-// ══════════════════════════════════════════════════════════════════════════════
-function cmdList(cwd) {
-  log.title('Block Inventory');
-
-  const blocksDir = path.join(cwd, 'blocks');
-  if (!fs.existsSync(blocksDir)) { log.warn('No blocks/ directory found.'); return; }
-
-  const blocks = fs.readdirSync(blocksDir, { withFileTypes: true })
-    .filter((d) => d.isDirectory())
-    .map((d) => d.name);
-
-  if (!blocks.length) { log.info('No blocks found.'); return; }
-
-  // Header
-  console.log(`\n  ${c.bold}${col('Block', 26)} JS   CSS  JSON   README${c.reset}`);
-  log.divider();
-
-  let issues = 0;
-  blocks.forEach((name) => {
-    const dir    = path.join(blocksDir, name);
-    const hasJS  = fs.existsSync(path.join(dir, `${name}.js`));
-    const hasCSS = fs.existsSync(path.join(dir, `${name}.css`));
-    const hasJSON = fs.existsSync(path.join(dir, `_${name}.json`));
-    const hasRM  = fs.existsSync(path.join(dir, 'README.md'));
-    const allGood = hasJS && hasCSS && hasJSON;
-    if (!allGood) issues++;
-    const nameColor = allGood ? c.reset : c.yellow;
-    console.log(`  ${nameColor}${col(name, 26)}${c.reset} ${tick(hasJS)}    ${tick(hasCSS)}   ${tick(hasJSON)}    ${tick(hasRM)}`);
-  });
-
-  log.blank();
-  log.info(`${blocks.length} block(s) found${issues ? `  ${c.yellow}(${issues} with issues)${c.reset}` : `  ${c.green}(all clean)${c.reset}`}`);
-  log.info(`Run ${c.bold}npm run build:json${c.reset} to rebuild global component-*.json files`);
-  log.blank();
-}
-
-// ─── Help ──────────────────────────────────────────────────────────────────────
-function printHelp() {
-  console.log(`
-  ${c.bold}${c.cyan}AEM EDS Block Scaffolder${c.reset}
-
-  ${c.bold}Usage:${c.reset}
-    npx eds-block-scaffold <command> [block-name] [flags]
-
-  ${c.bold}Commands:${c.reset}
-    ${c.cyan}create${c.reset} [name]   Scaffold a new block  ${c.dim}(default if no command given)${c.reset}
-    ${c.cyan}remove${c.reset} <name>   Delete block folder (JSON files go with it)
-    ${c.cyan}list${c.reset}            Show all blocks with file & authoring JSON status
-
-  ${c.bold}Flags:${c.reset}
-    ${c.cyan}--dry-run${c.reset}       Preview what would be generated without writing files
-
-  ${c.bold}Block-level JSON pattern:${c.reset}
-    Each block owns a single consolidated JSON file — no global file edits.
-    Run ${c.bold}npm run build:json${c.reset} (boilerplate script) to assemble globals.
-
-    blocks/<name>/
-      <name>.js              ← decoration logic
-      <name>.css             ← styles
-      _<name>.json           ← definitions + models + filters (all in one)
-      README.md              ← authoring guide
-
-  ${c.bold}Examples:${c.reset}
-    npx eds-block-scaffold create
-    npx eds-block-scaffold create carousel
-    npx eds-block-scaffold create carousel --dry-run
-    npx eds-block-scaffold remove old-block
-    npx eds-block-scaffold list
-`);
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// ENTRY POINT
-// ══════════════════════════════════════════════════════════════════════════════
+// ── Start ─────────────────────────────────────────────────────────────────────
 async function main() {
-  const args    = process.argv.slice(2);
-  const dryRun  = args.includes('--dry-run');
-  const cleaned = args.filter((a) => !a.startsWith('--'));
-  const cmd     = cleaned[0] || 'create';
-  const arg1    = cleaned[1] || '';
-  const cwd     = process.cwd();
-
-  if (cmd === 'help' || cmd === '--help' || cmd === '-h') { printHelp(); process.exit(0); }
-
-  log.title('AEM EDS Block Scaffolder');
-
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  process.on('SIGINT', () => { log.blank(); log.info('Cancelled.'); rl.close(); process.exit(0); });
-
-  if (cmd === 'list') { rl.close(); cmdList(cwd); }
-  else if (cmd === 'remove' || cmd === 'delete') { await cmdRemove(rl, cwd, arg1, dryRun); }
-  else if (cmd === 'create' || isValidName(cmd)) {
-    const blockName = isValidName(cmd) && cmd !== 'create' ? cmd : arg1;
-    await cmdCreate(rl, cwd, blockName, dryRun);
-  } else {
-    log.error(`Unknown command: "${cmd}"`);
-    printHelp();
-    rl.close();
-    process.exit(1);
-  }
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
 }
 
-main().catch((err) => { log.error(err.message); process.exit(1); });
+main();
