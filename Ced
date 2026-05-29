@@ -1,16 +1,33 @@
-## MCP Tools — Block Creation
+Create a block called mycarousel.
 
-When asked to create an EDS block, follow this flow:
+It is a container block with repeating child items.
 
-1. ALWAYS call init_block first — never create files directly
-2. Ask user clarifying questions using set_block_type guidance
-3. Call add_parent_field once per parent field
-4. Call set_child + add_child_field for container blocks
-5. Call add_variant for each layout variant mentioned
-6. Call add_condition when user says "only show X when Y is Z"
-7. Call preview_session before generating — let user confirm
-8. Call generate_block only after user confirms
+Parent config fields:
+- layoutVariant: select with options Grid (grid), Carousel Peek (carousel-peek), 
+  Carousel Side (carousel-side). Default: carousel-peek
+- autoplay: boolean toggle. Default: false
+- interval: number, min 1 max 20, default 5. Label: "Interval (seconds)"
+- pauseOnHover: boolean. Default: true. Label: "Pause on Hover"
+- infiniteLoop: boolean. Default: false. Label: "Infinite Loop"
+- sectionTitle: text
+- sectionContent: richtext
+- backgroundImage: reference. Label: "Section Background Image"
 
-Never write block files directly.
-Never call generate_block without preview_session first.
-Always ask before assuming block type.
+Child item name: mycarousel-item
+Child fields:
+- media: reference, required. Label: "Media (Image or Video)"
+- mediaType: select with options Image (image), Video (video). Default: image
+- caption: text. Label: "Caption"
+- description: richtext
+- ctaLabel: text. Label: "CTA Label"
+- ctaUrl: aem-content, rootPath: /content/tatapower. Label: "CTA URL"
+
+Conditional fields:
+- autoplay should only show when layoutVariant is carousel-peek OR carousel-side
+- interval should only show when autoplay is true
+- pauseOnHover should only show when autoplay is true
+- infiniteLoop should only show when layoutVariant is carousel-peek OR carousel-side
+
+Use init_block first, then build step by step.
+Do NOT create any files directly.
+Use session tools only and call preview_session before generate_block.
