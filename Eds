@@ -1,1789 +1,961 @@
-#!/usr/bin/env node
+# aem-eds-mcp v2.1
 
-/**
- * aem-eds-mcp v2.1 — Multi-turn conversational block scaffolding
- *
- * SAFETY RULES (enforced in tool descriptions + AGENTS.md):
- *   - NEVER edit _blockname.json, blockname.js, blockname.css directly
- *   - NEVER edit component-definition.json, component-filters.json, component-models.json
- *   - ALWAYS use session tools → generate_block for any block creation/modification
- *   - read_existing_block_for_reference is READ ONLY — never edit after reading
- *
- * 26 Tools:
- *   Session:    init_block, set_block_type, add_parent_field, add_tab_group,
- *               set_child, add_child_field, add_variant
- *   Conditions: add_condition, confirm_condition, update_condition
- *   Session:    remove_field, preview_session, undo_last_action,
- *               list_sessions, discard_session
- *   Generate:   generate_block, clone_block, validate_block
- *   Read-only:  read_existing_block_for_reference, read_component_filters,
- *               read_component_definition, read_component_models
- *   Filter:     add_to_section_filter
- *   Safety:     get_safety_rules
- *   Utility:    list_blocks, remove_block
- *
- * Features:
- *   - Multi-turn conversation — no one-shot prompts
- *   - 7 presets: carousel, hero, accordion, faq, cards, banner, teaser
- *   - Session persistence to .block-session.json (survives VS Code restart)
- *   - 24-hour session expiry with auto-purge
- *   - Undo last action (history max 20)
- *   - Input sanitization — auto-camelCase field names
- *   - Smart child name suggestion (carousel→carousel-slide etc.)
- *   - Condition inference from boolean field names (showX, enableY)
- *   - Condition confirmation flow (prevents wrong values being applied)
- *   - update_condition tool (fix wrong conditions mid-session)
- *   - AND conditions (two fields must both match)
- *   - Condition cascade validation (warns when controlling field deleted)
- *   - Variant-aware condition suggestions
- *   - Protected file list (component-definition/filters/models never edited)
- *   - Smarter JS generation — field-type-aware readers per field
- *   - Container JS: [configRow, ...itemRows] with exact field readers
- *   - Better README: field table, conditional notes, content tree, variants
- *   - clone_block: create session from existing block JSON
- *   - validate_block: audit existing block JSON for issues
- *   - Atomic file writes (.tmp → rename, no partial files on crash)
- *   - JSON validation before writing (resourceType, :items, orphan models)
- *   - Section wrapper: auto-updates models/_section.json
- *   - validateExistingBlock: skips external filter check for section wrappers
- *   - sanitizeFieldName: handles ALL-CAPS, CTA-URL, spaces, hyphens
- *
- * Tested: 260/261 tests passing across 4 complex blocks
- *   A. energy-hub (section-wrapper)
- *   B. solution-showcase (container-tabs, 4 tabs, 5 conditions, 3 variants)
- *   C. employee-profile (simple-tabs, 14 fields, ALL 11 field types, 3 conditions)
- *   D. renewable-energy-products (clone + modify + undo)
- */
+> MCP server for AEM Edge Delivery Services block scaffolding.  
+> Connects to GitHub Copilot and Claude Code for conversational block creation.
 
-const { McpServer }            = require('@modelcontextprotocol/sdk/server/mcp.js');
-const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
-const { z }                    = require('zod');
-const { execSync }             = require('child_process');
-const fs                       = require('fs');
-const path                     = require('path');
-const os                       = require('os');
+---
 
-const EDS_PROJECT = process.argv[2] || process.cwd();
-const server      = new McpServer({ name: 'aem-eds-scaffold', version: '2.0.0' });
+## Installation
 
-// ════════════════════════════════════════════════════════════════════════════
-// A — CONSTANTS
-// ════════════════════════════════════════════════════════════════════════════
+### 1. Install in your EDS project
 
-const VALID_TYPES = [
-  'text','textarea','richtext',
-  'reference','aem-content','aem-content-fragment','aem-experience-fragment',
-  'boolean','select','multiselect','radio-group','checkbox-group',
-  'number','aem-tag',
-];
-const OPTION_TYPES   = new Set(['select','multiselect','radio-group','checkbox-group']);
-const CONTROL_TYPES  = new Set(['select','radio-group','boolean']);
-const MULTI_TYPES    = new Set(['text','reference','aem-content']);
-const EXPIRY_MS      = 24 * 60 * 60 * 1000; // 24 hours
+```bash
+# Add to .vscode/mcp.json in your EDS project root
+```
 
-// Files that must NEVER be directly edited by any tool
-// These are managed only by generate_block / add_to_section_filter
-const PROTECTED_FILES = [
-  'component-definition.json',
-  'component-filters.json',
-  'component-models.json',
-  '_section.json',
-];
-
-// Safety message returned whenever a protected operation is attempted
-const SAFETY_MSG = `
-🚫 PROTECTED FILE — DO NOT EDIT DIRECTLY
-
-The following files must NEVER be edited directly:
-  • component-definition.json
-  • component-filters.json
-  • component-models.json
-  • models/_section.json
-  • blocks/<name>/_<name>.json
-  • blocks/<name>/<name>.js
-  • blocks/<name>/<name>.css
-
-ALWAYS use the session tools instead:
-  init_block → add fields → generate_block
-
-generate_block handles all file writes safely,
-including updating component-filters.json and _section.json.
-`.trim();
-
-const BLOCK_TYPES = {
-  'simple':          { label: 'Simple',              num: '1' },
-  'simple-tabs':     { label: 'Simple with tabs',    num: '2' },
-  'container':       { label: 'Container',            num: '3' },
-  'container-tabs':  { label: 'Container with tabs', num: '4' },
-  'section-wrapper': { label: 'Section wrapper',     num: '5' },
-};
-
-const INFERENCE_PREFIXES = ['show','enable','is','has','display','include'];
-
-// ════════════════════════════════════════════════════════════════════════════
-// B — PRESETS
-// ════════════════════════════════════════════════════════════════════════════
-
-const PRESETS = {
-  carousel: {
-    blockType: 'container',
-    parentFields: [
-      { name:'interval',    label:'Interval (seconds)', type:'number',  defaultValue:'5', min:1, max:20 },
-      { name:'autoplay',    label:'Autoplay',            type:'boolean', defaultValue:'false' },
-      { name:'pauseOnHover',label:'Pause on Hover',      type:'boolean', defaultValue:'true' },
-    ],
-    childName:   'carousel-slide',
-    childFields: [
-      { name:'image',    label:'Image',     type:'reference'   },
-      { name:'caption',  label:'Caption',   type:'text'        },
-      { name:'ctaLabel', label:'CTA Label', type:'text'        },
-      { name:'ctaUrl',   label:'CTA URL',   type:'aem-content' },
-    ],
-    variants: [], conditions: [],
-  },
-  hero: {
-    blockType: 'simple',
-    parentFields: [
-      { name:'eyebrow',     label:'Eyebrow',      type:'text'        },
-      { name:'heading',     label:'Heading',       type:'text',     required:true, maxLength:100 },
-      { name:'description', label:'Description',   type:'richtext'    },
-      { name:'ctaLabel',    label:'CTA Label',     type:'text'        },
-      { name:'ctaUrl',      label:'CTA URL',       type:'aem-content' },
-      { name:'image',       label:'Image',         type:'reference'   },
-    ],
-    childName:'', childFields:[], variants:[], conditions:[],
-  },
-  accordion: {
-    blockType: 'container',
-    parentFields: [],
-    childName:   'accordion-item',
-    childFields: [
-      { name:'question', label:'Question', type:'text',     required:true },
-      { name:'answer',   label:'Answer',   type:'richtext', required:true },
-    ],
-    variants:[], conditions:[],
-  },
-  faq: {
-    blockType: 'container',
-    parentFields: [
-      { name:'title', label:'FAQ Title', type:'text' },
-      { name:'theme', label:'Theme',     type:'select',
-        options:[{name:'Light',value:'light'},{name:'Dark',value:'dark'}], defaultValue:'light' },
-    ],
-    childName:   'faq-item',
-    childFields: [
-      { name:'question', label:'Question', type:'text',     required:true },
-      { name:'answer',   label:'Answer',   type:'richtext', required:true },
-      { name:'category', label:'Category', type:'text' },
-    ],
-    variants:[], conditions:[],
-  },
-  cards: {
-    blockType: 'container',
-    parentFields: [
-      { name:'layoutVariant', label:'Layout Variant', type:'select',
-        options:[
-          {name:'Grid',value:'grid'},
-          {name:'Carousel (Peek)',value:'carousel'},
-          {name:'Carousel (Side/Center)',value:'side-carousel'},
-        ], defaultValue:'grid' },
-      { name:'autoplay',    label:'Autoplay',      type:'boolean', defaultValue:'false' },
-      { name:'infiniteLoop',label:'Infinite Loop', type:'boolean', defaultValue:'false' },
-      { name:'sectionContent',   label:'Section Content',          type:'richtext' },
-      { name:'backgroundImage',  label:'Section Background Image', type:'reference' },
-    ],
-    childName:   'card',
-    childFields: [
-      { name:'image',       label:'Image',         type:'reference'   },
-      { name:'title',       label:'Title',         type:'text'        },
-      { name:'description', label:'Description',   type:'richtext'    },
-      { name:'ctaLabel',    label:'CTA Label',     type:'text'        },
-      { name:'ctaUrl',      label:'CTA URL',       type:'aem-content' },
-    ],
-    variants: [],
-    conditions: [
-      { targetField:'autoplay',     controllingField:'layoutVariant', operator:'or', values:['carousel','side-carousel'] },
-      { targetField:'infiniteLoop', controllingField:'layoutVariant', operator:'or', values:['carousel','side-carousel'] },
-    ],
-  },
-  banner: {
-    blockType: 'simple',
-    parentFields: [
-      { name:'heading',         label:'Heading',          type:'text',     required:true },
-      { name:'description',     label:'Description',      type:'richtext'  },
-      { name:'backgroundImage', label:'Background Image', type:'reference' },
-      { name:'ctaLabel',        label:'CTA Label',        type:'text'      },
-      { name:'ctaUrl',          label:'CTA URL',          type:'aem-content' },
-      { name:'theme', label:'Theme', type:'select',
-        options:[{name:'Light',value:'light'},{name:'Dark',value:'dark'}], defaultValue:'light' },
-    ],
-    childName:'', childFields:[], variants:[], conditions:[],
-  },
-  teaser: {
-    blockType: 'simple',
-    parentFields: [
-      { name:'image',       label:'Image',       type:'reference'   },
-      { name:'heading',     label:'Heading',     type:'text', required:true },
-      { name:'description', label:'Description', type:'richtext'    },
-      { name:'ctaLabel',    label:'CTA Label',   type:'text'        },
-      { name:'ctaUrl',      label:'CTA URL',     type:'aem-content' },
-    ],
-    childName:'', childFields:[], variants:[], conditions:[],
-  },
-};
-
-// ════════════════════════════════════════════════════════════════════════════
-// C — SESSION STORE
-// ════════════════════════════════════════════════════════════════════════════
-
-const SESSION_FILE = path.join(EDS_PROJECT, '.block-session.json');
-
-const SESSION_DEFAULTS = (name) => ({
-  name,
-  blockType:    '',
-  status:       'in-progress',
-  parentFields: [],
-  tabGroups:    [],
-  childName:    '',
-  childFields:  [],
-  variants:     [],
-  conditions:   [],
-  filterComponents:  [],
-  companionName:     '',
-  companionFields:   [],
-  labelName:         'tab-label',
-  history:           [],
-  createdAt:  new Date().toISOString(),
-  updatedAt:  new Date().toISOString(),
-  expiresAt:  new Date(Date.now() + EXPIRY_MS).toISOString(),
-});
-
-function isExpired(session) {
-  if (!session?.expiresAt) return false;
-  return new Date() > new Date(session.expiresAt);
+```json
+{
+  "servers": {
+    "aem-eds": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "aem-eds-mcp", "${workspaceFolder}"]
+    }
+  }
 }
+```
 
-function loadSessions() {
-  const map = new Map();
-  if (!fs.existsSync(SESSION_FILE)) return map;
-  try {
-    const data = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8'));
-    Object.entries(data).forEach(([k, v]) => {
-      if (!isExpired(v)) map.set(k, v);
-    });
-  } catch (_) {}
-  return map;
-}
-
-function saveSessions(sessions) {
-  try {
-    const obj = {};
-    sessions.forEach((v, k) => { obj[k] = v; });
-    const tmp = SESSION_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
-    fs.renameSync(tmp, SESSION_FILE);
-  } catch (_) {}
-}
-
-const sessions = loadSessions();
-
-function getSession(name) { return sessions.get(name) || null; }
-
-function snapshotSession(s) { return JSON.parse(JSON.stringify(s)); }
-
-function saveSession(session, pushHistory = false) {
-  if (pushHistory) {
-    const snap = snapshotSession(session);
-    snap.history = [];
-    session.history = session.history || [];
-    session.history.push(snap);
-    if (session.history.length > 20) session.history.shift();
-  }
-  session.updatedAt = new Date().toISOString();
-  sessions.set(session.name, session);
-  saveSessions(sessions);
-  return session;
-}
-
-function deleteSession(name) {
-  sessions.delete(name);
-  saveSessions(sessions);
-}
-
-function txt(text) { return { content: [{ type: 'text', text }] }; }
-
-// ════════════════════════════════════════════════════════════════════════════
-// D — UTILITY FUNCTIONS
-// ════════════════════════════════════════════════════════════════════════════
-
-function toTitleCase(str) {
-  return str.replace(/(^|[-_\s])(\w)/g, (_, sep, ch) => (sep ? ' ' : '') + ch.toUpperCase()).trim();
-}
-
-function sanitizeFieldName(name) {
-  if (!name) return '';
-  let s = name.trim();
-  // All caps single word → lowercase all
-  if (/^[A-Z][A-Z0-9]+$/.test(s)) s = s.toLowerCase();
-  // Handle ALL-CAPS segments in hyphenated strings e.g. CTA-URL → cta-url first
-  s = s.replace(/[A-Z]{2,}/g, w => w.charAt(0) + w.slice(1).toLowerCase());
-  // camelCase from separators
-  s = s.replace(/[-_\s]+(.)/g, (_, ch) => ch.toUpperCase());
-  return s.charAt(0).toLowerCase() + s.slice(1);
-}
-
-function normaliseType(input) {
-  const map = {
-    '1':'simple', 'simple':'simple', 'fixed':'simple', 'basic':'simple',
-    '2':'simple-tabs', 'simple-tabs':'simple-tabs', 'tabs':'simple-tabs',
-    '3':'container', 'container':'container', 'repeating':'container', 'children':'container',
-    '4':'container-tabs', 'container-tabs':'container-tabs',
-    '5':'section-wrapper', 'section-wrapper':'section-wrapper', 'section':'section-wrapper', 'tab-panel':'section-wrapper',
-  };
-  return map[input?.toLowerCase()?.trim()] || null;
-}
-
-function isValidBlockName(name) {
-  return /^[a-z][a-z0-9-]*$/.test(name) && name.length >= 2 && name.length <= 50;
-}
-
-function suggestChildName(blockName) {
-  const exact = {
-    'carousel':'carousel-slide', 'accordion':'accordion-item',
-    'faq':'faq-item', 'cards':'card', 'tabs':'tab-item',
-    'gallery':'gallery-item', 'slider':'slide', 'team':'team-member',
-    'features':'feature', 'list':'list-item',
-  };
-  if (exact[blockName]) return exact[blockName];
-  if (blockName.endsWith('-slider')) return blockName.replace(/-slider$/, '-slide');
-  if (blockName.endsWith('s') && !blockName.endsWith('ss')) return blockName.slice(0, -1);
-  return `${blockName}-item`;
-}
-
-function inferConditionTarget(fieldName, existingFieldNames) {
-  for (const prefix of INFERENCE_PREFIXES) {
-    if (fieldName.toLowerCase().startsWith(prefix) && fieldName.length > prefix.length) {
-      const remainder = fieldName.slice(prefix.length);
-      const inferred  = remainder.charAt(0).toLowerCase() + remainder.slice(1);
-      if (existingFieldNames.includes(inferred)) return inferred;
-    }
-  }
-  return null;
-}
-
-function sessionSummary(s) {
-  const lines = [];
-  const l = (x = '') => lines.push(x);
-  const p = (k, v) => lines.push(`  ${String(k).padEnd(22)} ${v}`);
-  l(`┌─ Block: ${s.name} ─ Status: ${s.status} ─ Type: ${BLOCK_TYPES[s.blockType]?.label || 'not set'}`);
-  if (s.parentFields.length) {
-    l(`  Parent fields (${s.parentFields.length}):`);
-    s.parentFields.forEach(f => {
-      const cond = f.condition ? ' [conditional]' : '';
-      const opts = f.options?.length ? ` [${f.options.length} options]` : '';
-      l(`    • ${f.name} (${f.type})${opts}${cond}`);
-    });
-  }
-  if (s.tabGroups.length) {
-    l(`  Tab groups (${s.tabGroups.length}):`);
-    s.tabGroups.forEach(t => l(`    • ${t.label}: ${t.fieldNames.join(', ')}`));
-  }
-  if (s.childName) {
-    l(`  Child: ${s.childName} (${s.childFields.length} fields)`);
-    s.childFields.forEach(f => l(`    • ${f.name} (${f.type})`));
-  }
-  if (s.variants.length) l(`  Variants: ${s.variants.map(v => `${v.name}→${v.value}`).join(', ')}`);
-  if (s.conditions.length) {
-    l(`  Conditions (${s.conditions.length}):`);
-    s.conditions.forEach(c => {
-      l(`    • "${c.targetField}" shows when "${c.controllingField}" is ${c.values.join(' OR ')}`);
-    });
-  }
-  l(`└─`);
-  return lines.join('\n');
-}
-
-function checkReady(session) {
-  const issues = [];
-  if (!session.blockType)             issues.push('Block type not set');
-  if (!session.parentFields.length && !['container','section-wrapper'].includes(session.blockType))
-                                      issues.push('No parent fields defined');
-  if (['container','container-tabs'].includes(session.blockType) && !session.childName)
-                                      issues.push('Child item name not set');
-  if (['container','container-tabs'].includes(session.blockType) && !session.childFields.length)
-                                      issues.push('No child fields defined');
-  return issues;
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// E — VALIDATION
-// ════════════════════════════════════════════════════════════════════════════
-
-function validateCondition(session, targetField, controllingField, operator, values) {
-  const allFields = [...session.parentFields, ...session.childFields];
-  const target    = allFields.find(f => f.name === targetField);
-  const ctrl      = session.parentFields.find(f => f.name === controllingField);
-
-  if (!target) return `Field "${targetField}" not found. Available: ${allFields.map(f=>f.name).join(', ')}`;
-  if (!ctrl)   return `Controlling field "${controllingField}" not found in parent fields: ${session.parentFields.map(f=>f.name).join(', ')}`;
-  if (!CONTROL_TYPES.has(ctrl.type)) return `"${controllingField}" is type "${ctrl.type}". Only select, radio-group, boolean can control visibility.`;
-  if (targetField === controllingField) return `A field cannot control its own visibility.`;
-
-  if (ctrl.options?.length && ctrl.type !== 'boolean') {
-    const valid   = ctrl.options.map(o => o.value);
-    const invalid = values.filter(v => !valid.includes(v));
-    if (invalid.length) return `Invalid values: ${invalid.join(', ')}. Valid for "${controllingField}": ${valid.join(', ')}`;
-  }
-  if (ctrl.type === 'boolean') {
-    const invalid = values.filter(v => v !== 'true' && v !== 'false');
-    if (invalid.length) return `Boolean field values must be "true" or "false". Got: ${invalid.join(', ')}`;
-  }
-  return null;
-}
-
-function validateBlockJSON(json, session) {
-  const errors = [];
-  if (!json.definitions?.length) { errors.push('No definitions'); return errors; }
-
-  json.definitions.forEach(def => {
-    const rt = def.plugins?.xwalk?.page?.resourceType;
-    if (!rt) errors.push(`Definition "${def.id}" missing resourceType`);
-    if (def.plugins?.xwalk?.page?.template?.[':items']) {
-      errors.push(`Definition "${def.id}" has :items — causes 409 JCR conflicts`);
-    }
-  });
-
-  if (session.blockType !== 'section-wrapper') {
-    const defIds = json.definitions.map(d => d.id);
-    json.models?.forEach(m => {
-      if (!defIds.includes(m.id)) errors.push(`Model "${m.id}" has no matching definition`);
-    });
-    json.filters?.forEach(f => {
-      f.components?.forEach(comp => {
-        if (!defIds.includes(comp)) errors.push(`Filter component "${comp}" has no definition`);
-      });
-    });
-  }
-  return errors;
-}
-
-function validateExistingBlock(json) {
-  const issues = [];
-  if (!json.definitions?.length) { issues.push('No definitions found'); return issues; }
-  const defIds = json.definitions.map(d => d.id);
-  const valid  = ['block/v1/block','block/v1/block/item','section/v1/section'];
-
-  // Detect if this is a section wrapper
-  const isSectionWrapper = json.definitions[0]?.plugins?.xwalk?.page?.resourceType?.includes('section/v1/section');
-
-  json.definitions.forEach(def => {
-    const rt = def.plugins?.xwalk?.page?.resourceType || '';
-    if (!rt) issues.push(`Definition "${def.id}" missing resourceType`);
-    else if (!valid.some(v => rt.includes(v))) issues.push(`Definition "${def.id}" unexpected resourceType: ${rt}`);
-    if (def.plugins?.xwalk?.page?.template?.[':items']) {
-      issues.push(`Definition "${def.id}" has :items — causes 409 JCR conflicts`);
-    }
-  });
-
-  json.models?.forEach(m => {
-    if (!defIds.includes(m.id)) issues.push(`Model "${m.id}" has no matching definition`);
-  });
-
-  // For section wrappers: filter components are external blocks — skip definition check
-  if (!isSectionWrapper) {
-    json.filters?.forEach(f => {
-      f.components?.forEach(comp => {
-        if (!defIds.includes(comp)) issues.push(`Filter component "${comp}" not in definitions`);
-      });
-    });
-  }
-
-  const allFieldNames = json.models?.flatMap(m => m.fields?.map(f => f.name) || []) || [];
-  json.models?.forEach(m => {
-    m.fields?.forEach(f => {
-      if (f.condition) {
-        const condStr = JSON.stringify(f.condition);
-        const varRefs = [...condStr.matchAll(/"var":"([^"]+)"/g)].map(r => r[1]);
-        varRefs.forEach(ref => {
-          if (!allFieldNames.includes(ref)) {
-            issues.push(`Condition on "${f.name}" references unknown field "${ref}"`);
-          }
-        });
-      }
-    });
-  });
-  return issues;
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// F — GENERATION FUNCTIONS
-// ════════════════════════════════════════════════════════════════════════════
-
-const TYPE_VALUE_MAP = {
-  text:'string', textarea:'string', richtext:'string',
-  reference:'string', 'aem-content':'string',
-  'aem-content-fragment':'string', 'aem-experience-fragment':'string',
-  boolean:'boolean', select:'string', multiselect:'string[]',
-  'radio-group':'string', 'checkbox-group':'string[]',
-  number:'number', 'aem-tag':'string',
-};
-
-function buildFieldSchema(field) {
-  const base = {
-    component: field.type,
-    name:      field.name,
-    label:     field.label,
-    valueType: TYPE_VALUE_MAP[field.type] || 'string',
-  };
-  if (field.required)    base.required    = true;
-  if (field.readOnly)    base.readOnly    = true;
-  if (field.hidden)      base.hidden      = true;
-  if (field.description) base.description = field.description;
-  if (field.multi)       base.multi       = true;
-  if (field.options?.length) base.options = field.options;
-
-  if (field.defaultValue !== undefined && field.defaultValue !== '') {
-    if (field.type === 'boolean')     base.value = field.defaultValue === 'true';
-    else if (field.type === 'number') base.value = parseFloat(field.defaultValue);
-    else                              base.value = field.defaultValue;
-  }
-
-  if (field.min  !== undefined) base.min  = field.min;
-  if (field.max  !== undefined) base.max  = field.max;
-  if (field.step !== undefined) base.step = field.step;
-
-  const val = {};
-  if (field.minLength !== undefined) val.minLength = field.minLength;
-  if (field.maxLength !== undefined) val.maxLength = field.maxLength;
-  if (field.rootPath)                val.rootPath  = field.rootPath;
-  if (field.customErrorMsg)          val.customErrorMsg = field.customErrorMsg;
-  if (Object.keys(val).length) base.validation = val;
-
-  if (field.condition) base.condition = field.condition;
-  return base;
-}
-
-function buildCondition(operator, controllingField, values) {
-  if (operator === '!==') return { '!==': [{ var: controllingField }, values[0]] };
-  if (operator === 'and') return { and: values.map(v => ({ '===': [{ var: controllingField }, v] })) };
-  if (values.length === 1) return { '===': [{ var: controllingField }, values[0]] };
-  return { or: values.map(v => ({ '===': [{ var: controllingField }, v] })) };
-}
-
-function applyConditionsToSession(session) {
-  session.conditions.forEach(cond => {
-    const allFields = [...session.parentFields, ...session.childFields];
-    const target    = allFields.find(f => f.name === cond.targetField);
-    if (target) target.condition = buildCondition(cond.operator, cond.controllingField, cond.values);
-  });
-}
-
-function buildBlockJSON(session) {
-  const { name, blockType, childName, childFields, variants } = session;
-  const isContainer   = blockType === 'container' || blockType === 'container-tabs';
-  const isSectionWrap = blockType === 'section-wrapper';
-  const useTabs       = blockType === 'simple-tabs' || blockType === 'container-tabs';
-
-  // Apply conditions to field objects before building schema
-  applyConditionsToSession(session);
-
-  let parentSchema = session.parentFields.map(buildFieldSchema);
-
-  if (variants?.length) {
-    parentSchema.push({
-      component: 'select', name: 'classes', label: 'Layout Variant',
-      valueType: 'string', options: variants, value: variants[0]?.value || '',
-    });
-  }
-
-  if (useTabs && session.tabGroups.length) {
-    const tabbed = [];
-    session.tabGroups.forEach((tab, ti) => {
-      tabbed.push({ component: 'tab', name: `tab${ti + 1}`, label: tab.label });
-      tab.fieldNames.forEach(fn => {
-        const f = parentSchema.find(x => x.name === fn);
-        if (f) tabbed.push(f);
-      });
-    });
-    parentSchema.forEach(f => { if (!tabbed.find(t => t.name === f.name)) tabbed.push(f); });
-    parentSchema = tabbed;
-  }
-
-  const definitions = [];
-  if (isSectionWrap) {
-    definitions.push({
-      title: toTitleCase(name), id: name,
-      plugins: { xwalk: { page: {
-        resourceType: 'core/franklin/components/section/v1/section',
-        template: { name: toTitleCase(name), model: name, filter: name, [session.labelName || 'tab-label']: 'Tab' },
-      }}},
-    });
-    if (session.companionName) {
-      definitions.push({
-        title: toTitleCase(session.companionName), id: session.companionName,
-        plugins: { xwalk: { page: {
-          resourceType: 'core/franklin/components/block/v1/block',
-          template: { name: toTitleCase(session.companionName), model: session.companionName },
-        }}},
-      });
-    }
-  } else {
-    const template = { name: toTitleCase(name), model: name };
-    if (isContainer) template.filter = name;
-    definitions.push({
-      title: toTitleCase(name), id: name,
-      plugins: { xwalk: { page: { resourceType: 'core/franklin/components/block/v1/block', template } } },
-    });
-    if (isContainer && childName) {
-      definitions.push({
-        title: toTitleCase(childName), id: childName,
-        plugins: { xwalk: { page: {
-          resourceType: 'core/franklin/components/block/v1/block/item',
-          template: { name: toTitleCase(childName), model: childName },
-        }}},
-      });
-    }
-  }
-
-  const models = [{ id: name, fields: parentSchema }];
-  if (isContainer && childName && childFields.length) {
-    models.push({ id: childName, fields: childFields.map(buildFieldSchema) });
-  }
-  if (isSectionWrap && session.companionName && session.companionFields?.length) {
-    models.push({ id: session.companionName, fields: session.companionFields.map(buildFieldSchema) });
-  }
-
-  let filters = [];
-  if (isContainer && childName) filters = [{ id: name, components: [childName] }];
-  if (isSectionWrap) {
-    const comps = [...(session.filterComponents || [])];
-    if (session.companionName) comps.push(session.companionName);
-    filters = [{ id: name, components: comps }];
-  }
-
-  return { definitions, models, filters };
-}
-
-function fieldReader(f, index, rowVar) {
-  const col = `${rowVar}.children[${index}]`;
-  if (f.type === 'reference')   return `  const ${f.name} = ${col}?.querySelector('picture, img');`;
-  if (f.type === 'aem-content') return `  const ${f.name} = ${col}?.querySelector('a');`;
-  if (f.type === 'richtext')    return `  const ${f.name} = ${col}?.innerHTML;`;
-  if (f.type === 'boolean')     return `  const ${f.name} = ${col}?.textContent.trim() === 'true';`;
-  if (f.type === 'number')      return `  const ${f.name} = parseFloat(${col}?.textContent.trim() || '0');`;
-  return `  const ${f.name} = ${col}?.textContent.trim();`;
-}
-
-function buildSmartJS(session) {
-  const { name, blockType, parentFields, childFields, childName } = session;
-  const isContainer = blockType === 'container' || blockType === 'container-tabs';
-  const lines = [`export default function decorate(block) {`];
-
-  if (isContainer) {
-    if (parentFields.length) {
-      lines.push(`  const [configRow, ...itemRows] = [...block.children];`);
-      lines.push(`  // Read parent config`);
-      parentFields.forEach((f, i) => lines.push(fieldReader(f, i, 'configRow')));
-    } else {
-      lines.push(`  const itemRows = [...block.children];`);
-    }
-    lines.push(``);
-    lines.push(`  itemRows.forEach((row) => {`);
-    lines.push(`    row.classList.add('${name}__item');`);
-    if (childFields.length) {
-      lines.push(`    // Read child fields`);
-      childFields.forEach((f, i) => lines.push('  ' + fieldReader(f, i, 'row')));
-    }
-    lines.push(`    // TODO: build ${childName || name + '-item'} UI`);
-    lines.push(`  });`);
-  } else {
-    if (parentFields.length) {
-      lines.push(`  const rows = [...block.children];`);
-      parentFields.forEach((f, i) => lines.push(fieldReader(f, i, `rows[${i}]`)));
-      lines.push(`  // TODO: build ${name} UI`);
-    } else {
-      lines.push(`  // TODO: implement ${name} block`);
-    }
-  }
-  lines.push(`}`);
-  return lines.join('\n') + '\n';
-}
-
-function buildCSS(name) { return `.${name} {\n  display: block;\n}\n`; }
-
-function buildReadme(session) {
-  const { name, blockType, parentFields, childName, childFields, conditions, variants } = session;
-  const isContainer = blockType === 'container' || blockType === 'container-tabs';
-  const title = toTitleCase(name);
-  let md = `# ${title}\n\n`;
-
-  if (parentFields.length) {
-    md += `## Fields\n\n| Field | Label | Type | Required | Notes |\n|---|---|---|---|---|\n`;
-    parentFields.forEach(f => {
-      const req   = f.required ? '✔' : '';
-      const notes = [];
-      if (f.options?.length) notes.push(`Options: ${f.options.map(o => o.name).join(', ')}`);
-      if (f.min !== undefined) notes.push(`min: ${f.min}`);
-      if (f.max !== undefined) notes.push(`max: ${f.max}`);
-      if (f.description) notes.push(f.description);
-      md += `| \`${f.name}\` | ${f.label} | ${f.type} | ${req} | ${notes.join('. ')} |\n`;
-    });
-    md += '\n';
-  }
-
-  if (isContainer && childFields.length) {
-    md += `## Child Fields (${toTitleCase(childName)})\n\n| Field | Label | Type | Required |\n|---|---|---|---|\n`;
-    childFields.forEach(f => {
-      md += `| \`${f.name}\` | ${f.label} | ${f.type} | ${f.required ? '✔' : ''} |\n`;
-    });
-    md += '\n';
-  }
-
-  if (conditions?.length) {
-    md += `## Conditional Fields\n\n`;
-    conditions.forEach(c => {
-      md += `- **\`${c.targetField}\`** — only visible when \`${c.controllingField}\` is ${c.values.map(v => `\`${v}\``).join(' or ')}\n`;
-    });
-    md += '\n';
-  }
-
-  if (variants?.length) {
-    md += `## Variants\n\n| Name | CSS Class |\n|---|---|\n`;
-    variants.forEach(v => { md += `| ${v.name} | \`${v.value}\` |\n`; });
-    md += '\n';
-  }
-
-  md += `## Content Tree\n\n\`\`\`\nSection\n  └── ${title}\n`;
-  if (isContainer && childName) {
-    md += `        ├── ${toTitleCase(childName)} 1\n        └── ${toTitleCase(childName)} 2\n`;
-  }
-  md += `\`\`\`\n\n`;
-
-  md += `## Authoring in Universal Editor\n\n`;
-  md += `1. Click **+** in Section → **${title}**\n`;
-  if (parentFields.length) md += `2. Click block → Properties panel → fill fields\n`;
-  if (isContainer && childName) {
-    md += `3. Click **+** INSIDE **${title}** → **${toTitleCase(childName)}**\n`;
-    md += `4. Fill child fields → repeat for each item\n`;
-  }
-  md += `5. Click **Publish**\n\n`;
-  md += `---\n\n## After any JSON change\n\`\`\`bash\nnpm run build:json && git add . && git push\n\`\`\`\n`;
-  return md;
-}
-
-function writeAtomic(filePath, content) {
-  const tmp = filePath + '.tmp';
-  fs.writeFileSync(tmp, content, 'utf8');
-  fs.renameSync(tmp, filePath);
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// G — TOOLS
-// ════════════════════════════════════════════════════════════════════════════
-
-// ── 1. init_block ─────────────────────────────────────────────────────────
-server.tool('init_block',
-  `ALWAYS call this FIRST for any block creation request. No exceptions.
-
-   WHY USE SESSION TOOLS (not direct file editing):
-   • Generates correct UE JSON structure automatically
-   • Correct resourceType per block type (block/v1/block, block/v1/block/item, section/v1/section)
-   • min/max placed top-level (not in validation) — UE HTML input attributes
-   • minLength/maxLength/rootPath placed inside validation object
-   • No :items in templates — prevents 409 JCR conflicts
-   • Correct JSONLogic syntax for conditional fields
-   • ESLint-safe JS generation — commits through Husky without errors
-   • Atomic file writes — no partial files on crash
-   • Auto-updates component-filters.json and _section.json safely
-   Direct file editing WILL produce broken JSON that fails silently in Universal Editor.
-
-   Presets available: carousel|hero|accordion|faq|cards|banner|teaser`,
-  {
-    name:      z.string().describe('Block name in kebab-case e.g. "carousel", "hero-banner"'),
-    blockType: z.string().optional().describe('If known: simple|simple-tabs|container|container-tabs|section-wrapper'),
-    preset:    z.string().optional().describe('Load a preset: carousel|hero|accordion|faq|cards|banner|teaser'),
-  },
-  async ({ name, blockType, preset }) => {
-    const cleanName = name.toLowerCase().trim().replace(/\s+/g, '-');
-    if (!isValidBlockName(cleanName)) {
-      return txt(
-        `Invalid block name "${name}".\n\n` +
-        `Rules:\n` +
-        `  • Lowercase letters, numbers, hyphens only\n` +
-        `  • Must start with a letter\n` +
-        `  • Minimum 2 characters\n\n` +
-        `Examples: "my-carousel", "hero-banner", "product-cards"`
-      );
-    }
-
-    const blockDir = path.join(EDS_PROJECT, 'blocks', cleanName);
-    if (fs.existsSync(blockDir)) {
-      return txt(
-        `Block "${cleanName}" already exists in blocks/.\n\n` +
-        `Options:\n` +
-        `  1. Use a different name e.g. "demo-${cleanName}", "test-${cleanName}"\n` +
-        `  2. Call clone_block("${cleanName}", "new-name") to start from existing fields\n` +
-        `  3. Call remove_block("${cleanName}") first if you want to fully recreate it\n\n` +
-        `⚠ DO NOT edit _${cleanName}.json directly — use clone_block instead.`
-      );
-    }
-
-    // Check component-definition.json for ID conflicts
-    const compDefPath = path.join(EDS_PROJECT, 'component-definition.json');
-    if (fs.existsSync(compDefPath)) {
-      try {
-        const compDef = JSON.parse(fs.readFileSync(compDefPath, 'utf8'));
-        const groups  = compDef.groups || [];
-        const allIds  = groups.flatMap(g => g.components?.map(c => c.id) || []);
-        if (allIds.includes(cleanName)) {
-          return txt(
-            `⚠ Warning: "${cleanName}" already exists in component-definition.json.\n` +
-            `Using this name may cause conflicts.\n\n` +
-            `Choose a different name or remove the existing entry first.\n` +
-            `DO NOT edit component-definition.json directly.`
-          );
-        }
-      } catch (_) {}
-    }
-
-    const session = SESSION_DEFAULTS(cleanName);
-
-    // Apply preset if requested
-    if (preset && PRESETS[preset.toLowerCase()]) {
-      const p = PRESETS[preset.toLowerCase()];
-      session.blockType    = p.blockType;
-      session.parentFields = JSON.parse(JSON.stringify(p.parentFields));
-      session.childName    = p.childName;
-      session.childFields  = JSON.parse(JSON.stringify(p.childFields));
-      session.variants     = JSON.parse(JSON.stringify(p.variants));
-      session.conditions   = JSON.parse(JSON.stringify(p.conditions));
-      applyConditionsToSession(session);
-      saveSession(session);
-      return txt(
-        `✔ Started "${cleanName}" with "${preset}" preset.\n\n` +
-        sessionSummary(session) + '\n\n' +
-        `Review the pre-loaded fields above.\n` +
-        `Call preview_session to confirm, then generate_block.\n` +
-        `Or add/remove fields as needed.\n\n` +
-        `⚠ DO NOT edit any files directly — use session tools only.`
-      );
-    }
-
-    if (blockType) {
-      const norm = normaliseType(blockType);
-      if (norm) { session.blockType = norm; }
-    }
-
-    saveSession(session);
-
-    if (session.blockType) {
-      const isContainer = session.blockType === 'container' || session.blockType === 'container-tabs';
-      return txt(
-        `✔ Started "${cleanName}" as ${BLOCK_TYPES[session.blockType].label}.\n\n` +
-        (isContainer
-          ? `Next:\n1. add_parent_field for config fields (skip if none)\n2. set_child with child item name\n3. add_child_field for each child field`
-          : `Next: add_parent_field for each field.`)
-      );
-    }
-
-    const presetList = Object.keys(PRESETS).join(', ');
-    return txt(
-      `✔ Started "${cleanName}".\n\n` +
-      `Available presets: ${presetList}\n\n` +
-      `Ask the user:\n` +
-      `"Does this block have repeating child items (like carousel slides or cards)?\n` +
-      ` Or does it have fixed fields only (like a hero or banner)?\n` +
-      ` Or should fields be grouped into tabs in the properties panel?"`
-    );
-  }
-);
-
-// ── 2. set_block_type ─────────────────────────────────────────────────────
-server.tool('set_block_type',
-  `Set the block type. Call when user intent is clear.
-   "repeating items/children" → container
-   "fixed fields only" → simple
-   "tabs in properties panel" → simple-tabs
-   "tab panel sections" → section-wrapper`,
-  {
-    name:      z.string(),
-    blockType: z.string().describe('simple|simple-tabs|container|container-tabs|section-wrapper'),
-  },
-  async ({ name, blockType }) => {
-    const session = getSession(name);
-    if (!session) return txt(`No session for "${name}". Call init_block first.`);
-    const norm = normaliseType(blockType);
-    if (!norm) return txt(`Unknown type "${blockType}". Use: simple|simple-tabs|container|container-tabs|section-wrapper`);
-    saveSession(session, true);
-    session.blockType = norm;
-    saveSession(session);
-
-    const isContainer = norm === 'container' || norm === 'container-tabs';
-    const useTabs     = norm === 'simple-tabs' || norm === 'container-tabs';
-    let next = `✔ Block type set to: ${BLOCK_TYPES[norm].label}\n\n`;
-    if (norm === 'section-wrapper') {
-      next += `Next: ask user which blocks can go inside each tab section, and what to call the tab label field.`;
-    } else if (useTabs) {
-      next += `Next: ask user how many tabs and what each tab should be called. Then add fields per tab.`;
-    } else if (isContainer) {
-      const suggested = suggestChildName(name);
-      next += `Next: define parent config fields (if any), then call set_child("${name}", "${suggested}") and add child fields.`;
-    } else {
-      next += `Next: call add_parent_field for each field the block needs.`;
-    }
-    return txt(next);
-  }
-);
-
-// ── 3. add_parent_field ───────────────────────────────────────────────────
-server.tool('add_parent_field',
-  `Add one field to the parent block model. Call once per field.
-   Auto-sanitizes field names (camelCase).
-   Detects condition inference opportunities for boolean fields named show*/enable*/is*/has*.`,
-  {
-    name:         z.string(),
-    fieldName:    z.string().describe('Field name — auto-corrected to camelCase'),
-    fieldLabel:   z.string().describe('Display label in UE properties panel'),
-    fieldType:    z.string().describe('text|textarea|richtext|reference|aem-content|aem-content-fragment|aem-experience-fragment|boolean|select|multiselect|radio-group|checkbox-group|number|aem-tag'),
-    options:      z.array(z.object({ name:z.string(), value:z.string() })).optional(),
-    defaultValue: z.string().optional(),
-    required:     z.boolean().optional(),
-    multi:        z.boolean().optional(),
-    min:          z.number().optional(),
-    max:          z.number().optional(),
-    step:         z.number().optional(),
-    minLength:    z.number().optional(),
-    maxLength:    z.number().optional(),
-    rootPath:     z.string().optional(),
-    description:  z.string().optional(),
-    hidden:       z.boolean().optional(),
-    readOnly:     z.boolean().optional(),
-  },
-  async ({ name, fieldName, fieldLabel, fieldType, options, defaultValue,
-           required, multi, min, max, step, minLength, maxLength,
-           rootPath, description, hidden, readOnly }) => {
-    const session = getSession(name);
-    if (!session) return txt(`No session for "${name}". Call init_block first.`);
-
-    const cleanName = sanitizeFieldName(fieldName);
-    if (!cleanName || !/^[a-zA-Z][a-zA-Z0-9]*$/.test(cleanName)) {
-      return txt(`Invalid field name "${fieldName}". Use camelCase: "layoutVariant", "ctaUrl", "backgroundImage"`);
-    }
-    if (!VALID_TYPES.includes(fieldType)) {
-      return txt(`Unknown type "${fieldType}".\nValid types: ${VALID_TYPES.join(', ')}`);
-    }
-    if (OPTION_TYPES.has(fieldType) && (!options?.length)) {
-      return txt(`"${fieldType}" requires options. Provide options array with name/value pairs.`);
-    }
-    if (session.parentFields.find(f => f.name === cleanName)) {
-      return txt(`Field "${cleanName}" already exists in parent fields. Use a different name.`);
-    }
-
-    saveSession(session, true);
-
-    const field = { name: cleanName, label: fieldLabel, type: fieldType };
-    if (options?.length)            field.options      = options;
-    if (defaultValue !== undefined) field.defaultValue = defaultValue;
-    if (required)                   field.required     = true;
-    if (multi && MULTI_TYPES.has(fieldType)) field.multi = true;
-    if (min  !== undefined)         field.min          = min;
-    if (max  !== undefined)         field.max          = max;
-    if (step !== undefined)         field.step         = step;
-    if (minLength !== undefined)    field.minLength    = minLength;
-    if (maxLength !== undefined)    field.maxLength    = maxLength;
-    if (rootPath)                   field.rootPath     = rootPath;
-    if (description)                field.description  = description;
-    if (hidden)                     field.hidden       = true;
-    if (readOnly)                   field.readOnly     = true;
-
-    session.parentFields.push(field);
-
-    // Condition inference — check if boolean field name implies it controls another
-    let inferHint = '';
-    if (fieldType === 'boolean') {
-      const existingNames = session.parentFields.filter(f => f.name !== cleanName).map(f => f.name);
-      const target = inferConditionTarget(cleanName, existingNames);
-      if (target) {
-        inferHint = `\n\n💡 "${cleanName}" looks like it controls "${target}". Should "${target}" only show when "${cleanName}" is true?\n   If yes, call: add_condition("${name}", "${target}", "${cleanName}", "===", ["true"])`;
-      }
-    }
-
-    saveSession(session);
-    const nameNote = fieldName !== cleanName ? ` (auto-corrected from "${fieldName}")` : '';
-    return txt(`✔ Added "${cleanName}" (${fieldType})${nameNote}. Total parent fields: ${session.parentFields.length}${inferHint}`);
-  }
-);
-
-// ── 4. add_tab_group ──────────────────────────────────────────────────────
-server.tool('add_tab_group',
-  'Add a tab group for simple-tabs or container-tabs blocks.',
-  {
-    name:       z.string(),
-    tabLabel:   z.string().describe('Tab label e.g. "Profile", "Media"'),
-    fieldNames: z.array(z.string()).describe('Field names that belong to this tab'),
-  },
-  async ({ name, tabLabel, fieldNames }) => {
-    const session = getSession(name);
-    if (!session) return txt(`No session for "${name}".`);
-    if (!['simple-tabs','container-tabs'].includes(session.blockType)) {
-      return txt(`Tab groups only apply to simple-tabs or container-tabs blocks.`);
-    }
-    const missing = fieldNames.filter(fn => !session.parentFields.find(f => f.name === fn));
-    if (missing.length) {
-      return txt(`Fields not found: ${missing.join(', ')}. Add them first with add_parent_field.`);
-    }
-    saveSession(session, true);
-    session.tabGroups.push({ label: tabLabel, fieldNames });
-    saveSession(session);
-    return txt(`✔ Tab "${tabLabel}" added with fields: ${fieldNames.join(', ')}. Total tabs: ${session.tabGroups.length}`);
-  }
-);
-
-// ── 5. set_child ──────────────────────────────────────────────────────────
-server.tool('set_child',
-  'Set the child item name for container blocks. Then use add_child_field.',
-  {
-    name:      z.string(),
-    childName: z.string().optional().describe('Child name — leave empty to auto-suggest'),
-  },
-  async ({ name, childName }) => {
-    const session = getSession(name);
-    if (!session) return txt(`No session for "${name}".`);
-    if (!['container','container-tabs'].includes(session.blockType)) {
-      return txt(`Child items only apply to container/container-tabs blocks.`);
-    }
-    const suggested  = childName || suggestChildName(name);
-    const cleanChild = suggested.toLowerCase().trim().replace(/\s+/g, '-');
-    saveSession(session, true);
-    session.childName = cleanChild;
-    saveSession(session);
-    return txt(`✔ Child item set to "${cleanChild}".\nNext: call add_child_field for each child field.`);
-  }
-);
-
-// ── 6. add_child_field ────────────────────────────────────────────────────
-server.tool('add_child_field',
-  'Add one field to the child item model. Same field types as add_parent_field.',
-  {
-    name:         z.string(),
-    fieldName:    z.string(),
-    fieldLabel:   z.string(),
-    fieldType:    z.string(),
-    options:      z.array(z.object({ name:z.string(), value:z.string() })).optional(),
-    defaultValue: z.string().optional(),
-    required:     z.boolean().optional(),
-    multi:        z.boolean().optional(),
-    min:          z.number().optional(),
-    max:          z.number().optional(),
-    minLength:    z.number().optional(),
-    maxLength:    z.number().optional(),
-    rootPath:     z.string().optional(),
-    description:  z.string().optional(),
-  },
-  async ({ name, fieldName, fieldLabel, fieldType, options, defaultValue,
-           required, multi, min, max, minLength, maxLength, rootPath, description }) => {
-    const session = getSession(name);
-    if (!session) return txt(`No session for "${name}".`);
-    if (!session.childName) return txt(`Set child name first with set_child.`);
-    const cleanName = sanitizeFieldName(fieldName);
-    if (!VALID_TYPES.includes(fieldType)) return txt(`Unknown type "${fieldType}".`);
-    if (OPTION_TYPES.has(fieldType) && !options?.length) return txt(`"${fieldType}" requires options.`);
-    if (session.childFields.find(f => f.name === cleanName)) return txt(`Child field "${cleanName}" already exists.`);
-    saveSession(session, true);
-    const field = { name:cleanName, label:fieldLabel, type:fieldType };
-    if (options?.length)            field.options      = options;
-    if (defaultValue !== undefined) field.defaultValue = defaultValue;
-    if (required)                   field.required     = true;
-    if (multi && MULTI_TYPES.has(fieldType)) field.multi = true;
-    if (min  !== undefined)         field.min          = min;
-    if (max  !== undefined)         field.max          = max;
-    if (minLength !== undefined)    field.minLength    = minLength;
-    if (maxLength !== undefined)    field.maxLength    = maxLength;
-    if (rootPath)                   field.rootPath     = rootPath;
-    if (description)                field.description  = description;
-    session.childFields.push(field);
-    saveSession(session);
-    return txt(`✔ Child field "${cleanName}" (${fieldType}) added. Total child fields: ${session.childFields.length}`);
-  }
-);
-
-// ── 7. add_variant ────────────────────────────────────────────────────────
-server.tool('add_variant',
-  `Add a variant option. Creates/extends a "classes" select field.
-   Call when user mentions different layouts or visual styles.
-   After adding variants, proactively ask if any fields should be conditional on the variant.`,
-  {
-    name:  z.string(),
-    label: z.string().describe('Display name e.g. "Dark", "Grid"'),
-    value: z.string().describe('CSS class value e.g. "dark", "grid"'),
-  },
-  async ({ name, label, value }) => {
-    const session = getSession(name);
-    if (!session) return txt(`No session for "${name}".`);
-    if (session.variants.find(v => v.value === value)) return txt(`Variant "${value}" already added.`);
-    saveSession(session, true);
-    session.variants.push({ name: label, value });
-    saveSession(session);
-
-    const boolFields = session.parentFields.filter(f => f.type === 'boolean' && !f.condition);
-    const hint = boolFields.length
-      ? `\n\n💡 You have ${boolFields.length} boolean field(s) without conditions: ${boolFields.map(f=>f.name).join(', ')}\n   Should any of them only show for specific variants?\n   If yes, call add_condition for each.`
-      : '';
-    return txt(`✔ Variant "${label}" → "${value}" added. Total variants: ${session.variants.length}${hint}`);
-  }
-);
-
-// ── 8. add_condition ──────────────────────────────────────────────────────
-server.tool('add_condition',
-  `Add conditional visibility to a field.
-
-   WHEN TO CALL:
-   "only show X when Y is Z"       → operator: ===
-   "X appears for carousel only"   → operator: === values:["carousel"]
-   "X for carousel AND side-carousel" → operator: or values:["carousel","side-carousel"]
-   "hide X unless Y is enabled"    → operator: !==
-   "X only when A is Z AND B is W" → operator: and (use andControllingField + andValues)
-
-   OPERATOR GUIDE — choose carefully:
-   ===  field shows for EXACTLY ONE value e.g. only "carousel" (not side-carousel)
-   or   field shows for ANY OF multiple values e.g. "carousel" OR "side-carousel"
-   !==  field shows for everything EXCEPT one value
-   and  TWO different fields must both match (use andControllingField + andValues)
-
-   ⚠ ALWAYS list the exact values to the user and ask "Is this correct?" before calling.
-   ⚠ "carousel variants" usually means ALL carousel options — use "or" not "===".
-   ⚠ NEVER edit _blockname.json directly to add conditions.
-
-   After calling, this tool returns a CONFIRMATION REQUEST.
-   Show it to the user and wait for approval before generating.`,
-  {
-    name:             z.string(),
-    targetField:      z.string().describe('Field that should show/hide'),
-    controllingField: z.string().describe('Field whose value controls visibility'),
-    operator:         z.enum(['===','or','!==','and']).describe(
-      '===: one value | or: any of multiple values | !==: not equal | and: two fields must match'
-    ),
-    values:           z.array(z.string()).describe(
-      'Values that make field VISIBLE. For "or": include ALL values e.g. ["carousel","side-carousel"]. For "===": one value only.'
-    ),
-    applyToChild:        z.boolean().optional(),
-    andControllingField: z.string().optional().describe('Second field for AND conditions'),
-    andValues:           z.array(z.string()).optional().describe('Values for the AND condition second field'),
-  },
-  async ({ name, targetField, controllingField, operator, values,
-           applyToChild, andControllingField, andValues }) => {
-    const session = getSession(name);
-    if (!session) return txt(`No session for "${name}". Call init_block first.`);
-
-    const err = validateCondition(session, targetField, controllingField, operator, values);
-    if (err) return txt(`✖ ${err}`);
-
-    if (operator === 'and' && andControllingField && andValues?.length) {
-      const err2 = validateCondition(session, targetField, andControllingField, '===', andValues);
-      if (err2) return txt(`✖ AND condition error: ${err2}`);
-    }
-
-    // Store as pending — require confirmation before applying
-    session._pendingCondition = {
-      targetField, controllingField, operator, values,
-      applyToChild, andControllingField, andValues,
-    };
-    saveSession(session);
-
-    const valDisplay = values.map(v => `"${v}"`).join(' OR ');
-    const opLabel = {
-      '===': 'equals exactly',
-      'or':  'equals any of',
-      '!==': 'does NOT equal',
-      'and': 'equals (with AND condition)',
-    }[operator];
-
-    let msg =
-      `⏸ Condition PENDING — please confirm with user before applying:\n\n` +
-      `  Field to show/hide:  "${targetField}"\n` +
-      `  Controlling field:   "${controllingField}"\n` +
-      `  Operator:            ${operator} (${opLabel})\n` +
-      `  Values:              ${valDisplay}\n`;
-
-    if (operator === 'and' && andControllingField) {
-      msg += `  AND also:            "${andControllingField}" is "${andValues?.join(', ')}"\n`;
-    }
-
-    msg += `\n  JSONLogic preview: ${JSON.stringify(
-      operator === 'and' && andControllingField
-        ? { and: [buildCondition('===', controllingField, values), buildCondition('===', andControllingField, andValues || [])] }
-        : buildCondition(operator, controllingField, values)
-    )}\n\n`;
-
-    msg += `Ask the user: "Should '${targetField}' show when '${controllingField}' is ${valDisplay}? Is this correct?"\n\n`;
-    msg += `  If YES → call confirm_condition("${name}", "${targetField}")\n`;
-    msg += `  If NO  → call add_condition again with corrected values`;
-
-    return txt(msg);
-  }
-);
-
-// ── 8b. confirm_condition ─────────────────────────────────────────────────
-server.tool('confirm_condition',
-  `Apply a pending condition after user confirms the values are correct.
-   Always call this after add_condition and user says "yes" or "correct".
-   NEVER skip this step — conditions must be user-confirmed before applying.`,
-  {
-    name:        z.string(),
-    targetField: z.string().describe('Field name that has a pending condition'),
-  },
-  async ({ name, targetField }) => {
-    const session = getSession(name);
-    if (!session) return txt(`No session for "${name}".`);
-
-    const pending = session._pendingCondition;
-    if (!pending || pending.targetField !== targetField) {
-      return txt(
-        `No pending condition for "${targetField}".\n` +
-        `Call add_condition first, then confirm_condition after user approves.`
-      );
-    }
-
-    const { controllingField, operator, values, applyToChild, andControllingField, andValues } = pending;
-
-    saveSession(session, true);
-
-    const allFields = [...session.parentFields, ...session.childFields];
-    const target    = allFields.find(f => f.name === targetField);
-
-    let condition;
-    if (operator === 'and' && andControllingField && andValues?.length) {
-      condition = {
-        and: [
-          buildCondition('===', controllingField, values),
-          buildCondition('===', andControllingField, andValues),
-        ],
-      };
-    } else {
-      condition = buildCondition(operator, controllingField, values);
-    }
-
-    target.condition = condition;
-
-    const existing = session.conditions.findIndex(c => c.targetField === targetField);
-    const record   = { targetField, controllingField, operator, values };
-    if (existing >= 0) session.conditions[existing] = record;
-    else               session.conditions.push(record);
-
-    delete session._pendingCondition;
-    saveSession(session);
-
-    return txt(
-      `✔ Condition confirmed and applied:\n` +
-      `  "${targetField}" shows when "${controllingField}" is ${values.join(' OR ')}\n\n` +
-      `  JSONLogic: ${JSON.stringify(condition)}\n\n` +
-      `  Total conditions: ${session.conditions.length}`
-    );
-  }
-);
-
-// ── 8c. update_condition ──────────────────────────────────────────────────
-server.tool('update_condition',
-  `Replace an existing condition on a field with corrected values.
-   Call when user says "the condition is wrong", "change it to...", "fix the values".
-   Goes through the same confirmation flow as add_condition.
-   NEVER edit _blockname.json directly to fix conditions.`,
-  {
-    name:             z.string(),
-    targetField:      z.string().describe('Field whose condition should be updated'),
-    controllingField: z.string().describe('Controlling field (can be same or different)'),
-    operator:         z.enum(['===','or','!==','and']).describe(
-      '===: one value | or: any of multiple | !==: not equal | and: two fields'
-    ),
-    values:           z.array(z.string()).describe('Corrected values'),
-    andControllingField: z.string().optional(),
-    andValues:           z.array(z.string()).optional(),
-  },
-  async ({ name, targetField, controllingField, operator, values, andControllingField, andValues }) => {
-    const session = getSession(name);
-    if (!session) return txt(`No session for "${name}".`);
-
-    // Check target field exists
-    const allFields = [...session.parentFields, ...session.childFields];
-    if (!allFields.find(f => f.name === targetField)) {
-      return txt(`Field "${targetField}" not found.`);
-    }
-
-    // Validate new condition
-    const err = validateCondition(session, targetField, controllingField, operator, values);
-    if (err) return txt(`✖ ${err}`);
-
-    // Store as pending — requires confirmation
-    session._pendingCondition = { targetField, controllingField, operator, values, andControllingField, andValues };
-    saveSession(session);
-
-    const valDisplay = values.map(v => `"${v}"`).join(' OR ');
-    const existing   = session.conditions.find(c => c.targetField === targetField);
-    const oldDisplay = existing
-      ? `"${existing.controllingField}" is ${existing.values.map(v=>`"${v}"`).join(' OR ')}`
-      : 'none';
-
-    return txt(
-      `⏸ Condition UPDATE PENDING — confirm with user:\n\n` +
-      `  Field:       "${targetField}"\n` +
-      `  Old condition: ${oldDisplay}\n` +
-      `  New condition: "${controllingField}" is ${valDisplay}\n\n` +
-      `  Ask user: "Should the condition be updated to show '${targetField}' when '${controllingField}' is ${valDisplay}?"\n\n` +
-      `  If YES → call confirm_condition("${name}", "${targetField}")\n` +
-      `  If NO  → call update_condition again with different values`
-    );
-  }
-);
-
-// ── 9. remove_field ───────────────────────────────────────────────────────
-server.tool('remove_field',
-  'Remove a field. Cascade-checks if other fields depend on this one as a controlling field.',
-  {
-    name:      z.string(),
-    fieldName: z.string(),
-    fromChild: z.boolean().optional(),
-  },
-  async ({ name, fieldName, fromChild }) => {
-    const session = getSession(name);
-    if (!session) return txt(`No session for "${name}".`);
-
-    // Cascade check — is this field controlling any conditions?
-    const dependents = session.conditions.filter(c => c.controllingField === fieldName);
-    const cascadeWarning = dependents.length
-      ? `\n⚠ Cascade warning: ${dependents.length} condition(s) reference "${fieldName}" as controlling field:\n` +
-        dependents.map(c => `  • "${c.targetField}" visibility controlled by "${fieldName}"`).join('\n') +
-        `\n  These conditions have been removed automatically.`
-      : '';
-
-    saveSession(session, true);
-
-    if (fromChild) {
-      const i = session.childFields.findIndex(f => f.name === fieldName);
-      if (i < 0) return txt(`Child field "${fieldName}" not found.`);
-      session.childFields.splice(i, 1);
-    } else {
-      const i = session.parentFields.findIndex(f => f.name === fieldName);
-      if (i < 0) return txt(`Parent field "${fieldName}" not found.`);
-      session.parentFields.splice(i, 1);
-      // Remove cascade conditions
-      session.conditions = session.conditions.filter(
-        c => c.targetField !== fieldName && c.controllingField !== fieldName
-      );
-      // Also clear condition from other fields that were controlled by this
-      session.parentFields.forEach(f => {
-        if (f.condition && JSON.stringify(f.condition).includes(`"var":"${fieldName}"`)) {
-          delete f.condition;
-        }
-      });
-    }
-
-    saveSession(session);
-    return txt(`✔ Field "${fieldName}" removed.${cascadeWarning}`);
-  }
-);
-
-// ── 10. preview_session ───────────────────────────────────────────────────
-server.tool('preview_session',
-  'Show current block config before generating. Always call before generate_block.',
-  { name: z.string() },
-  async ({ name }) => {
-    const session = getSession(name);
-    if (!session) return txt(`No session for "${name}".`);
-    const issues  = checkReady(session);
-    const summary = sessionSummary(session);
-    const status  = issues.length
-      ? `\n⚠ Not ready:\n${issues.map(i => `  • ${i}`).join('\n')}\n\nFix these then preview again.`
-      : `\n✔ Ready! Call generate_block("${name}") to create files.`;
-    return txt(summary + status);
-  }
-);
-
-// ── 11. undo_last_action ──────────────────────────────────────────────────
-server.tool('undo_last_action',
-  'Undo the last change to a session. Call when user says "undo", "go back", "remove that".',
-  { name: z.string() },
-  async ({ name }) => {
-    const session = getSession(name);
-    if (!session) return txt(`No session for "${name}".`);
-    if (!session.history?.length) return txt(`Nothing to undo for "${name}".`);
-    const prev = session.history.pop();
-    const history = session.history;
-    Object.assign(session, { ...prev, history });
-    saveSession(session);
-    return txt(`✔ Last action undone.\n\n${sessionSummary(session)}`);
-  }
-);
-
-// ── 12. list_sessions ─────────────────────────────────────────────────────
-server.tool('list_sessions',
-  'List all active block sessions in progress.',
-  {},
-  async () => {
-    if (!sessions.size) return txt('No active sessions.');
-    const lines = ['Active sessions:\n'];
-    sessions.forEach((s, k) => {
-      lines.push(
-        `  ${k.padEnd(22)} ${(s.blockType||'type?').padEnd(16)} ` +
-        `${s.parentFields.length}p  ${s.childFields.length}c  ${s.status}`
-      );
-    });
-    return txt(lines.join('\n'));
-  }
-);
-
-// ── 13. discard_session ───────────────────────────────────────────────────
-server.tool('discard_session',
-  'Discard a session without generating. Call when user cancels.',
-  { name: z.string() },
-  async ({ name }) => {
-    if (!sessions.has(name)) return txt(`No session for "${name}".`);
-    deleteSession(name);
-    return txt(`✔ Session "${name}" discarded.`);
-  }
-);
-
-// ── 14. generate_block ────────────────────────────────────────────────────
-server.tool('generate_block',
-  'Generate all block files. ALWAYS call preview_session first. Validates JSON before writing. Uses atomic file writes.',
-  { name: z.string() },
-  async ({ name }) => {
-    const session = getSession(name);
-    if (!session) return txt(`No session for "${name}". Call init_block first.`);
-    const issues = checkReady(session);
-    if (issues.length) return txt(`Cannot generate:\n${issues.map(i => `  • ${i}`).join('\n')}`);
-
-    try {
-      const blockJSON = buildBlockJSON(session);
-
-      // Validate before writing
-      const errors = validateBlockJSON(blockJSON, session);
-      if (errors.length) {
-        return txt(`JSON validation failed:\n${errors.map(e => `  • ${e}`).join('\n')}\n\nFix session config and try again.`);
-      }
-
-      const dir = path.join(EDS_PROJECT, 'blocks', name);
-      fs.mkdirSync(dir, { recursive: true });
-
-      writeAtomic(path.join(dir, `${name}.js`),    buildSmartJS(session));
-      writeAtomic(path.join(dir, `${name}.css`),   buildCSS(name));
-      writeAtomic(path.join(dir, `_${name}.json`), JSON.stringify(blockJSON, null, 2) + '\n');
-      writeAtomic(path.join(dir, 'README.md'),      buildReadme(session));
-
-      // Update component-filters.json
-      let filterMsg = '';
-      const filtersPath = path.join(EDS_PROJECT, 'component-filters.json');
-      if (fs.existsSync(filtersPath)) {
-        try {
-          const f = JSON.parse(fs.readFileSync(filtersPath, 'utf8'));
-          const s = f.find(x => x.id === 'section');
-          if (s && !s.components.includes(name)) {
-            s.components.push(name);
-            writeAtomic(filtersPath, JSON.stringify(f, null, 2) + '\n');
-            filterMsg = `\n  ✔ Added "${name}" to component-filters.json`;
-          }
-        } catch (_) { filterMsg = '\n  ⚠ Could not update component-filters.json'; }
-      }
-
-      // Update models/_section.json for section wrapper
-      let sectionMsg = '';
-      if (session.blockType === 'section-wrapper') {
-        const sp = path.join(EDS_PROJECT, 'models', '_section.json');
-        if (fs.existsSync(sp)) {
-          try {
-            const sj = JSON.parse(fs.readFileSync(sp, 'utf8'));
-            const sf = sj.filters?.find(f => f.id === 'section');
-            if (sf && !sf.components.includes(name)) {
-              sf.components.push(name);
-              writeAtomic(sp, JSON.stringify(sj, null, 2) + '\n');
-              sectionMsg = `\n  ✔ Added "${name}" to models/_section.json`;
-            }
-          } catch (_) { sectionMsg = '\n  ⚠ Could not update models/_section.json'; }
-        }
-      }
-
-      session.status = 'generated';
-      saveSession(session);
-
-      return txt([
-        `✔ Block "${name}" generated!`, '',
-        `  blocks/${name}/${name}.js`,
-        `  blocks/${name}/${name}.css`,
-        `  blocks/${name}/_${name}.json`,
-        `  blocks/${name}/README.md`,
-        filterMsg, sectionMsg, '',
-        `Next steps:`,
-        `  npm run build:json`,
-        `  git add .`,
-        `  git commit -m "feat: ${name} block"`,
-        `  git push`,
-      ].filter(x => x !== '').join('\n'));
-
-    } catch (e) {
-      return txt(`Error generating block: ${e.message}`);
-    }
-  }
-);
-
-// ── 15. clone_block ───────────────────────────────────────────────────────
-server.tool('clone_block',
-  `Create a new block session pre-filled from an existing block's JSON.
-   Call when user says "similar to X" or "based on X but with changes".`,
-  {
-    sourceName: z.string().describe('Existing block name to copy from'),
-    newName:    z.string().describe('New block name for the clone'),
-  },
-  async ({ sourceName, newName }) => {
-    const cleanNew = newName.toLowerCase().trim().replace(/\s+/g, '-');
-    if (!isValidBlockName(cleanNew)) return txt(`Invalid new name "${newName}".`);
-    if (fs.existsSync(path.join(EDS_PROJECT, 'blocks', cleanNew))) {
-      return txt(`Block "${cleanNew}" already exists.`);
-    }
-
-    const srcPath = path.join(EDS_PROJECT, 'blocks', sourceName, `_${sourceName}.json`);
-    if (!fs.existsSync(srcPath)) {
-      return txt(`Source block "${sourceName}" not found. Make sure _${sourceName}.json exists.`);
-    }
-
-    let json;
-    try {
-      json = JSON.parse(fs.readFileSync(srcPath, 'utf8'));
-    } catch (e) {
-      return txt(`Could not parse _${sourceName}.json: ${e.message}`);
-    }
-
-    const session = SESSION_DEFAULTS(cleanNew);
-    const mainDef = json.definitions?.[0];
-    const rt      = mainDef?.plugins?.xwalk?.page?.resourceType || '';
-
-    if (rt.includes('section/v1/section')) {
-      session.blockType = 'section-wrapper';
-    } else {
-      const hasChild = json.definitions?.length > 1 &&
-        json.definitions[1]?.plugins?.xwalk?.page?.resourceType?.includes('block/item');
-      const mainModel = json.models?.find(m => m.id === mainDef?.id);
-      const hasTabs   = mainModel?.fields?.some(f => f.component === 'tab');
-      if (hasChild && hasTabs)    session.blockType = 'container-tabs';
-      else if (hasChild)          session.blockType = 'container';
-      else if (hasTabs)           session.blockType = 'simple-tabs';
-      else                        session.blockType = 'simple';
-    }
-
-    // Parse parent fields
-    const mainModel = json.models?.find(m => m.id === mainDef?.id);
-    if (mainModel?.fields) {
-      session.parentFields = mainModel.fields
-        .filter(f => f.component !== 'tab' && f.name !== 'classes')
-        .map(f => ({
-          name: f.name, label: f.label, type: f.component,
-          required: f.required, options: f.options,
-          defaultValue: f.value !== undefined ? String(f.value) : undefined,
-          min: f.min, max: f.max, condition: f.condition,
-        }));
-    }
-
-    // Parse child
-    if (json.definitions?.length > 1) {
-      const childDef   = json.definitions[1];
-      session.childName = childDef.id;
-      const childModel  = json.models?.find(m => m.id === childDef.id);
-      if (childModel?.fields) {
-        session.childFields = childModel.fields.map(f => ({
-          name: f.name, label: f.label, type: f.component,
-          required: f.required, options: f.options,
-        }));
-      }
-    }
-
-    saveSession(session);
-    return txt(
-      `✔ Cloned "${sourceName}" → "${cleanNew}"\n\n` +
-      sessionSummary(session) + '\n\n' +
-      `Add, remove or modify fields as needed, then call generate_block.`
-    );
-  }
-);
-
-// ── 16. validate_block ────────────────────────────────────────────────────
-server.tool('validate_block',
-  `Audit an existing block's JSON for issues.
-   Checks: resourceType, :items, orphan models, broken filter references, broken conditions.`,
-  { name: z.string() },
-  async ({ name }) => {
-    const jsonPath = path.join(EDS_PROJECT, 'blocks', name, `_${name}.json`);
-    if (!fs.existsSync(jsonPath)) return txt(`_${name}.json not found.`);
-
-    let json;
-    try { json = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); }
-    catch (e) { return txt(`Could not parse _${name}.json: ${e.message}`); }
-
-    const issues = validateExistingBlock(json);
-    if (!issues.length) return txt(`✔ "${name}" is valid — no issues found.`);
-    return txt(`⚠ "${name}" has ${issues.length} issue(s):\n\n` + issues.map((i,n) => `  ${n+1}. ${i}`).join('\n'));
-  }
-);
-
-// ── Utility tools ──────────────────────────────────────────────────────────
-function run(cmd) { return execSync(cmd, { cwd: EDS_PROJECT, encoding: 'utf8' }); }
-
-server.tool('list_blocks', 'List all blocks in the project with file status',{},
-  async () => { try { return txt(run('npx aem-eds-cli list')); } catch(e) { return txt('Error: '+e.message); } }
-);
-
-server.tool('remove_block', 'Remove an existing block and all its files from the project',
-  { name: z.string() },
-  async ({name}) => { try { return txt(run(`npx aem-eds-cli remove ${name}`)); } catch(e) { return txt('Error: '+e.message); } }
-);
-
-server.tool(
-  'read_existing_block_for_reference',
-  `READ ONLY — read an existing block's JSON for reference or comparison.
-
-   ⚠ IMPORTANT — NEVER do any of the following after reading:
-     • Edit _${'{name}'}.json directly
-     • Edit component-definition.json
-     • Edit component-filters.json
-     • Edit component-models.json
-
-   ALLOWED actions after reading:
-     • Show the JSON to the user for information
-     • Call clone_block to create a new session based on this block
-     • Call validate_block to check for issues
-     • Compare with another block's structure
-
-   To MODIFY an existing block:
-     → call clone_block("existing-name", "same-or-new-name") — creates a session
-     → make changes in the session
-     → call generate_block to write safely`,
-  { name: z.string().describe('Block name to read e.g. "carousel"') },
-  async ({name}) => {
-    const p = path.join(EDS_PROJECT,'blocks',name,`_${name}.json`);
-    if (!fs.existsSync(p)) return txt(`_${name}.json not found in blocks/${name}/`);
-    const content = fs.readFileSync(p,'utf8');
-    return txt(
-      `📖 READ ONLY — blocks/${name}/_${name}.json\n\n` +
-      `⚠ Do NOT edit this file directly.\n` +
-      `  Use clone_block("${name}", "new-name") to modify.\n\n` +
-      content
-    );
-  }
-);
-
-server.tool(
-  'read_component_filters',
-  `READ ONLY — read component-filters.json to see which blocks are in section filter.
-
-   ⚠ NEVER edit component-filters.json directly.
-   To add a block: use add_to_section_filter tool.
-   generate_block auto-updates this file safely.`,
-  {},
-  async () => {
-    const p = path.join(EDS_PROJECT,'component-filters.json');
-    if (!fs.existsSync(p)) return txt('component-filters.json not found');
-    return txt(
-      `📖 READ ONLY — component-filters.json\n\n` +
-      `⚠ Do NOT edit this file directly.\n` +
-      `  Use add_to_section_filter to add a block.\n\n` +
-      fs.readFileSync(p,'utf8')
-    );
-  }
-);
-
-server.tool(
-  'read_component_definition',
-  `READ ONLY — read component-definition.json to see all registered block definitions.
-
-   ⚠ NEVER edit component-definition.json directly.
-   generate_block and npm run build:json manage this file automatically.`,
-  {},
-  async () => {
-    const p = path.join(EDS_PROJECT,'component-definition.json');
-    if (!fs.existsSync(p)) return txt('component-definition.json not found');
-    return txt(
-      `📖 READ ONLY — component-definition.json\n\n` +
-      `⚠ Do NOT edit this file directly.\n` +
-      `  Use generate_block + npm run build:json to update.\n\n` +
-      fs.readFileSync(p,'utf8')
-    );
-  }
-);
-
-server.tool(
-  'read_component_models',
-  `READ ONLY — read component-models.json to see all registered field models.
-
-   ⚠ NEVER edit component-models.json directly.
-   generate_block and npm run build:json manage this file automatically.`,
-  {},
-  async () => {
-    const p = path.join(EDS_PROJECT,'component-models.json');
-    if (!fs.existsSync(p)) return txt('component-models.json not found');
-    return txt(
-      `📖 READ ONLY — component-models.json\n\n` +
-      `⚠ Do NOT edit this file directly.\n` +
-      `  Use generate_block + npm run build:json to update.\n\n` +
-      fs.readFileSync(p,'utf8')
-    );
-  }
-);
-
-server.tool(
-  'add_to_section_filter',
-  `Add a block to the section filter in component-filters.json.
-   This is the ONLY safe way to update component-filters.json.
-   generate_block calls this automatically — only use manually if needed.`,
-  { name: z.string() },
-  async ({name}) => {
-    const p = path.join(EDS_PROJECT,'component-filters.json');
-    if (!fs.existsSync(p)) return txt('component-filters.json not found');
-    try {
-      const json = JSON.parse(fs.readFileSync(p,'utf8'));
-      const sec  = json.find(f => f.id==='section');
-      if (!sec) return txt('No section entry found in component-filters.json');
-      if (sec.components.includes(name)) return txt(`"${name}" already in section filter`);
-      sec.components.push(name);
-      writeAtomic(p, JSON.stringify(json,null,2)+'\n');
-      return txt(`✔ Added "${name}" to section filter in component-filters.json`);
-    } catch(e) { return txt('Error: '+e.message); }
-  }
-);
-
-server.tool(
-  'get_safety_rules',
-  `Return the complete list of safety rules for working with EDS blocks.
-   Call this if unsure whether an action is safe.`,
-  {},
-  async () => txt(
-    `AEM EDS MCP — Safety Rules\n\n` +
-    `NEVER edit these files directly:\n` +
-    `  • component-definition.json\n` +
-    `  • component-filters.json\n` +
-    `  • component-models.json\n` +
-    `  • models/_section.json\n` +
-    `  • blocks/<name>/_<name>.json\n` +
-    `  • blocks/<name>/<name>.js\n` +
-    `  • blocks/<name>/<name>.css\n\n` +
-    `ALWAYS use these tools instead:\n\n` +
-    `  Creating a block:\n` +
-    `    init_block → add_parent_field → set_child → add_child_field\n` +
-    `    → add_variant → add_condition → confirm_condition → preview_session → generate_block\n\n` +
-    `  Modifying an existing block:\n` +
-    `    clone_block → modify in session → generate_block\n\n` +
-    `  Reading files (read-only):\n` +
-    `    read_existing_block_for_reference\n` +
-    `    read_component_filters\n` +
-    `    read_component_definition\n` +
-    `    read_component_models\n\n` +
-    `  Filters:\n` +
-    `    add_to_section_filter (only safe way to update component-filters.json)\n\n` +
-    `  Conditions:\n` +
-    `    add_condition → confirm_condition (always confirm with user before applying)\n` +
-    `    update_condition → confirm_condition (to fix wrong conditions)\n`
-  )
-);
-
-// ── Start ─────────────────────────────────────────────────────────────────
-async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-}
-main();
+### 2. Enable in VS Code
+
+```
+Settings → search "mcp" → enable chat.mcp.enabled
+VS Code 1.99+ required
+Copilot Chat → Agent mode (Auto)
+```
+
+### 3. Verify connection
+
+```
+MCP: aem-eds → Running → Discovered 26 tools
+```
+
+### 4. Add AGENTS.md rules (required)
+
+Add to your project `AGENTS.md`:
+
+```markdown
+## AEM EDS Block Rules
+
+NEVER directly edit block files or component JSON files.
+ALWAYS use MCP session tools → generate_block.
+
+For new blocks:   init_block → add fields → generate_block
+For existing:     clone_block → modify → generate_block
+For conditions:   add_condition → confirm_condition
+For filters:      add_to_section_filter only
+```
+
+---
+
+## Why use this instead of Copilot directly?
+
+Copilot alone gets these wrong silently:
+
+| Rule | Wrong (Copilot guess) | Correct (MCP generates) |
+|---|---|---|
+| Child resourceType | `block/v1/block` | `block/v1/block/item` |
+| Number field min/max | Inside `validation` | Top-level |
+| Text maxLength | Top-level | Inside `validation` |
+| Condition syntax | Invented format | JSONLogic `===` / `or` |
+| `:items` in template | Present → 409 JCR error | Never generated |
+| JS variables | All declared → ESLint fail | Comment hints only |
+
+---
+
+## Block Types Reference
+
+```
+1. simple           Fixed fields only          → hero, banner, teaser
+2. simple-tabs      Fixed fields + UE tabs     → profile, settings
+3. container        Repeating child items      → carousel, accordion, cards
+4. container-tabs   Tabbed config + children   → product showcase, investor hub
+5. section-wrapper  Full tab panel sections    → content tabs, energy hub
+```
+
+---
+
+## Prompt Patterns
+
+> All prompts follow the same format.  
+> Copy, fill in the `[ ]` parts, paste into Copilot Chat.
+
+---
+
+## Pattern 1 — Simple Block
+
+**Use when:** Fixed fields, no repeating items. Hero, banner, teaser, stat block.
+
+```
+Create a block called [block-name].
+
+Fixed fields:
+- [fieldName]: [type]. [label]. [optional: required / default: value / max: N]
+- [fieldName]: [type]. [label].
+
+Do NOT create files directly.
+Use init_block, then add_parent_field for each field.
+Call preview_session before generate_block.
+```
+
+**Example:**
+
+```
+Create a block called page-hero.
+
+Fixed fields:
+- eyebrow: text. Eyebrow Text.
+- heading: text. Main Heading. required. max: 80
+- description: richtext. Description.
+- ctaLabel: text. CTA Button Label.
+- ctaUrl: aem-content. CTA URL. rootPath: /content/tatapower
+- backgroundImage: reference. Background Image.
+- theme: select. Theme. options: Light (light), Dark (dark). default: light
+
+Do NOT create files directly.
+Use init_block, then add_parent_field for each field.
+Call preview_session before generate_block.
+```
+
+**Generated files:**
+```
+blocks/page-hero/
+  page-hero.js   ← ESLint-safe decorate() stub
+  page-hero.css  ← .page-hero { display: block; }
+  _page-hero.json
+  README.md
+```
+
+---
+
+## Pattern 2 — Simple Block with Tabs
+
+**Use when:** Fixed fields grouped into UE Properties panel tabs. Profile, settings, employee.
+
+```
+Create a block called [block-name] with [N] tabs.
+
+Tab 1 — [Tab Label]:
+- [fieldName]: [type]. [label].
+- [fieldName]: [type]. [label].
+
+Tab 2 — [Tab Label]:
+- [fieldName]: [type]. [label].
+- [fieldName]: [type]. [label].
+
+Do NOT create files directly.
+Use init_block with type simple-tabs, add_parent_field for each field,
+then add_tab_group for each tab.
+Call preview_session before generate_block.
+```
+
+**Example:**
+
+```
+Create a block called employee-profile with 3 tabs.
+
+Tab 1 — Personal:
+- photo: reference. Profile Photo. required.
+- fullName: text. Full Name. required. max: 60
+- age: number. Age. min: 18. max: 65
+- gender: radio-group. Gender. options: Male (male), Female (female), Other (other)
+
+Tab 2 — Professional:
+- department: select. Department. options: Engineering (eng), Sales (sales), Finance (finance)
+- designation: text. Designation. required.
+- experience: number. Years of Experience. min: 0. max: 45. default: 0
+- skills: checkbox-group. Skills. options: Leadership (leadership), Technical (technical)
+
+Tab 3 — Social:
+- linkedIn: aem-content. LinkedIn URL. rootPath: /content/tatapower/people
+- showContact: boolean. Show Contact Info. default: true
+
+Do NOT create files directly.
+Use init_block with type simple-tabs, add_parent_field for each field,
+then add_tab_group for each tab.
+Call preview_session before generate_block.
+```
+
+---
+
+## Pattern 3 — Container Block
+
+**Use when:** Repeating child items. Carousel, cards, accordion, team, news feed.
+
+```
+Create a block called [block-name].
+It has repeating [child-item-name] items.
+
+Parent config fields:
+- [fieldName]: [type]. [label]. [options if select]
+- [fieldName]: [type]. [label].
+
+Child item name: [child-item-name]
+Child fields:
+- [fieldName]: [type]. [label]. [required?]
+- [fieldName]: [type]. [label].
+
+Do NOT create files directly.
+Use init_block, add_parent_field for config,
+set_child, add_child_field for each child field.
+Call preview_session before generate_block.
+```
+
+**Example:**
+
+```
+Create a block called news-cards.
+It has repeating news-card items.
+
+Parent config fields:
+- layoutVariant: select. Layout. options: Grid (grid), List (list). default: grid
+- showDate: boolean. Show Published Date. default: true
+
+Child item name: news-card
+Child fields:
+- thumbnail: reference. Thumbnail Image. required.
+- articleTitle: text. Article Title. required. max: 120
+- author: text. Author Name. required.
+- publishedDate: text. Published Date. description: e.g. 15 Jan 2025
+- category: aem-tag. Category.
+- excerpt: textarea. Excerpt. max: 200
+- readMoreUrl: aem-content. Read More URL. rootPath: /content/tatapower/news
+
+Do NOT create files directly.
+Use init_block, add_parent_field for config,
+set_child, add_child_field for each child field.
+Call preview_session before generate_block.
+```
+
+---
+
+## Pattern 4 — Container with Tabs
+
+**Use when:** Tabbed parent config + repeating children. Product showcase, investor hub.
+
+```
+Create a block called [block-name].
+It has tabbed parent config and repeating [child-name] items.
+
+Tab 1 — [Tab Label]:
+- [fieldName]: [type]. [label].
+
+Tab 2 — [Tab Label]:
+- [fieldName]: [type]. [label].
+
+Child item name: [child-name]
+Child fields:
+- [fieldName]: [type]. [label].
+
+Do NOT create files directly.
+Use init_block with type container-tabs, add_parent_field for all fields,
+add_tab_group for each tab, set_child, add_child_field for each child field.
+Call preview_session before generate_block.
+```
+
+**Example:**
+
+```
+Create a block called solution-showcase.
+It has tabbed parent config and repeating solution-item items.
+
+Tab 1 — Layout:
+- layoutStyle: select. Layout Style. options: Grid (grid), Carousel (carousel), List (list). default: grid
+- columns: number. Columns. min: 1. max: 4. default: 3
+
+Tab 2 — Animation:
+- animationType: select. Animation. options: None (none), Fade (fade), Slide (slide). default: none
+- animationDelay: number. Delay (ms). min: 0. max: 2000. step: 100. default: 0
+
+Child item name: solution-item
+Child fields:
+- solutionImage: reference. Solution Image. required.
+- solutionTitle: text. Title. required. max: 80
+- shortDesc: textarea. Short Description. max: 160
+- ctaUrl: aem-content. CTA URL. rootPath: /content/tatapower/solutions
+
+Do NOT create files directly.
+Use init_block with type container-tabs, add_parent_field for all fields,
+add_tab_group for each tab, set_child, add_child_field for each child field.
+Call preview_session before generate_block.
+```
+
+---
+
+## Pattern 5 — Section Wrapper (Tab Panel)
+
+**Use when:** Full-section tabs where each tab contains other blocks. Content tabs, energy hub.
+
+```
+Create a block called [block-name] as a section wrapper / tab panel.
+
+Tab label field: [label-field-name]. required.
+  description: [hint for authors e.g. "Solar Energy, Wind Power"]
+
+Companion navigation block: [companion-name]
+Companion fields:
+- [fieldName]: [type]. [label]. options: [...]
+
+Allow these blocks inside each tab:
+[block1], [block2], [block3], [block4]
+
+Do NOT create files directly.
+Use init_block with type section-wrapper,
+set companion name and fields, set filterComponents.
+Call preview_session before generate_block.
+```
+
+**Example:**
+
+```
+Create a block called energy-hub as a section wrapper / tab panel.
+
+Tab label field: section-label. required.
+  description: e.g. Solar Energy, Wind Power, Hydroelectric
+  customErrorMsg: Please enter a label for this energy section
+
+Companion navigation block: energy-nav
+Companion fields:
+- navPosition: select. Navigation Position. options: Top (top), Left (left), Bottom (bottom). default: top
+- navStyle: select. Navigation Style. options: Pill (pill), Underline (underline). default: underline
+- stickyNav: boolean. Sticky Navigation. default: false
+
+Allow these blocks inside each tab:
+hero, banner, cards, carousel, news-cards, solar-faq
+
+Do NOT create files directly.
+Use init_block with type section-wrapper,
+set companion name and fields, set filterComponents.
+Call preview_session before generate_block.
+```
+
+---
+
+## Pattern 6 — Conditional Fields
+
+**Use when:** A field should only show in UE when another field has a specific value.
+
+```
+[after defining fields above]
+
+Conditional fields:
+- [targetField] only shows when [controllingField] is [value]
+- [targetField] only shows when [controllingField] is [value1] OR [value2]
+- [targetField] shows for everything EXCEPT [value]
+- [targetField] shows when [fieldA] is [value1] AND [fieldB] is [value2]
+
+Confirm each condition before applying.
+```
+
+### Operator quick reference
+
+```
+=== one value      "autoplay shows when layoutVariant is carousel"
+or  multiple       "autoplay shows when layoutVariant is carousel OR side-carousel"
+!== not equal      "autoplay shows for everything EXCEPT list"
+and two fields     "downloadBtn shows when mediaType is image AND allowDownload is true"
+```
+
+**Example — carousel with conditions:**
+
+```
+Create a block called mycarousel.
+It has repeating mycarousel-item items.
+
+Parent config fields:
+- layoutVariant: select. Layout. options: Carousel Peek (carousel-peek), Carousel Side (carousel-side), Grid (grid). default: carousel-peek
+- autoplay: boolean. Autoplay. default: false
+- interval: number. Interval (seconds). min: 1. max: 20. default: 5
+- pauseOnHover: boolean. Pause on Hover. default: true
+- infiniteLoop: boolean. Infinite Loop. default: false
+- sectionTitle: text. Section Title.
+- sectionContent: richtext. Section Content.
+- backgroundImage: reference. Background Image.
+
+Child item name: mycarousel-item
+Child fields:
+- media: reference. Media (Image or Video). required.
+- mediaType: select. Media Type. options: Image (image), Video (video). default: image
+- caption: text. Caption.
+- description: richtext. Description.
+- ctaLabel: text. CTA Label.
+- ctaUrl: aem-content. CTA URL. rootPath: /content/tatapower
+
+Conditional fields:
+- autoplay only shows when layoutVariant is carousel-peek OR carousel-side
+- interval only shows when autoplay is true
+- pauseOnHover only shows when autoplay is true
+- infiniteLoop only shows when layoutVariant is carousel-peek OR carousel-side
+
+Confirm each condition before applying.
+Do NOT create files directly.
+Call preview_session before generate_block.
+```
+
+**Example — media block with !== and AND:**
+
+```
+Create a block called media-feature.
+
+Fixed fields:
+- mediaType: select. Media Type. options: Image (image), Video (video), YouTube (youtube). default: image
+- image: reference. Image.
+- videoUrl: aem-content. Video URL.
+- youtubeId: text. YouTube Video ID. description: e.g. dQw4w9WgXcQ
+- allowDownload: boolean. Allow Download. default: false
+- downloadLabel: text. Download Button Label.
+- caption: text. Caption.
+
+Conditional fields:
+- image only shows when mediaType is image
+- videoUrl only shows when mediaType is video
+- youtubeId only shows when mediaType is youtube
+- allowDownload only shows when mediaType is image
+- downloadLabel shows when mediaType is image AND allowDownload is true
+
+Confirm each condition before applying.
+Do NOT create files directly.
+Call preview_session before generate_block.
+```
+
+---
+
+## Pattern 7 — Variants
+
+**Use when:** Block needs different visual styles authors can choose (CSS class applied).
+
+```
+[after defining fields above]
+
+Variants:
+- [Display Name] ([css-value])
+- [Display Name] ([css-value])
+```
+
+**Example:**
+
+```
+Create a block called promo-banner.
+
+Fixed fields:
+- heading: text. Heading. required. max: 80
+- description: richtext. Description.
+- ctaUrl: aem-content. CTA URL.
+
+Variants:
+- Dark (dark)
+- Light (light)
+- Gradient (gradient)
+- Full Width (full-width)
+
+Do NOT create files directly.
+Call preview_session before generate_block.
+```
+
+---
+
+## Pattern 8 — Presets
+
+**Use when:** Standard blocks with a well-known field set. Fastest way to start.
+
+```
+Use the [preset-name] preset for a new block called [block-name].
+[optional: add / remove / change any fields]
+```
+
+**Available presets:**
+
+| Preset | Type | Pre-loaded fields |
+|---|---|---|
+| `carousel` | container | interval, autoplay, pauseOnHover + slide: image, caption, ctaLabel, ctaUrl |
+| `hero` | simple | eyebrow, heading, description, ctaLabel, ctaUrl, image |
+| `accordion` | container | item: question (required), answer (required) |
+| `faq` | container | title, theme + item: question, answer, category |
+| `cards` | container | layoutVariant, autoplay, infiniteLoop (with conditions) + card: image, title, description, ctaLabel, ctaUrl |
+| `banner` | simple | heading, description, backgroundImage, ctaLabel, ctaUrl, theme |
+| `teaser` | simple | image, heading, description, ctaLabel, ctaUrl |
+
+**Example:**
+
+```
+Use the cards preset for a new block called product-cards.
+Add a price field (text) to each child card.
+Remove the sectionContent parent field.
+```
+
+---
+
+## Pattern 9 — Clone Existing Block
+
+**Use when:** New block is similar to an existing one. Fastest modification path.
+
+```
+Create a block called [new-name] based on [existing-block-name].
+[list changes: add field X, remove field Y, change type of Z]
+```
+
+**Example:**
+
+```
+Create a block called news-cards based on my existing cards block.
+Add a publishedDate field (text) to each child card.
+Remove the sectionContent and backgroundImage parent fields.
+Change the child description field to textarea instead of richtext.
+```
+
+---
+
+## Pattern 10 — Mid-Session Changes
+
+**Use when:** You change your mind during block creation.
+
+```
+[in Copilot Chat, continuing the same session]
+
+"Actually remove the [fieldName] field"
+"Wait, change [fieldName] to [newType] instead"
+"Undo that last change"
+"Add [fieldName] as [type]"
+"The condition on [fieldName] is wrong, change it to [correction]"
+```
+
+**Examples:**
+
+```
+Remove the backgroundImage field
+```
+```
+Undo that last field
+```
+```
+The autoplay condition is wrong — it should show for
+carousel-peek and carousel-side, not just carousel
+```
+```
+Add a badge field as select with options:
+New (new), Sale (sale), Featured (featured)
+```
+
+---
+
+## Pattern 11 — Validate Existing Block
+
+**Use when:** You have an older block and want to check it for UE issues.
+
+```
+Validate the [block-name] block JSON for issues
+```
+
+**What it checks:**
+- Correct `resourceType` strings
+- No `:items` in template (causes 409 JCR conflicts)
+- All models have matching definitions
+- All filter components have definitions
+- Conditions reference existing fields
+
+---
+
+## Pattern 12 — Utility Commands
+
+```
+List all blocks in this project
+```
+```
+Remove the [block-name] block
+```
+```
+Show me the JSON for the [block-name] block
+```
+```
+What blocks are in the section filter?
+```
+```
+Add [block-name] to the section filter
+```
+```
+What sessions are currently in progress?
+```
+```
+Discard the [block-name] session
+```
+```
+Show me the safety rules
+```
+
+---
+
+## Field Types Reference
+
+```
+Text input:
+  text              Single line plain text
+  textarea          Multi-line plain text
+  richtext          WYSIWYG rich text editor
+
+Media & Links:
+  reference         DAM asset picker (image/video/PDF)
+  aem-content       Page / link picker  [supports rootPath]
+  aem-content-fragment  Content Fragment picker  [supports rootPath]
+  aem-experience-fragment  Experience Fragment picker
+
+Toggle & Selection:
+  boolean           On/off toggle  [default: true or false]
+  select            Single dropdown  [requires options]
+  multiselect       Multi-select dropdown  [requires options]
+  radio-group       Radio buttons  [requires options]
+  checkbox-group    Checkboxes  [requires options]
+
+Special:
+  number            Numeric input  [min, max, step go top-level]
+  aem-tag           cq:tags picker
+```
+
+---
+
+## Validation Rules Reference
+
+```
+All field types:
+  required          Field must be filled
+  readOnly          Field shown but cannot be edited
+  hidden            Field hidden in properties panel
+  description       Helper text shown below field
+
+text / textarea:
+  max: N            → goes inside validation.maxLength
+  min: N            → goes inside validation.minLength
+
+number:
+  min: N            → goes TOP-LEVEL (not in validation)
+  max: N            → goes TOP-LEVEL (not in validation)
+  step: N           → goes TOP-LEVEL
+
+aem-content / aem-content-fragment:
+  rootPath: /path   → goes inside validation.rootPath
+
+boolean:
+  customErrorMsg    → goes inside validation.customErrorMsg
+```
+
+---
+
+## Condition Rules Reference
+
+```
+Who can control conditions:
+  ✔  select
+  ✔  radio-group
+  ✔  boolean
+
+  ✖  text  textarea  richtext  number  reference  aem-content  aem-tag
+     (these cannot control other fields)
+
+Operators:
+  ===   field shows for EXACTLY ONE value
+  or    field shows for ANY OF multiple values
+  !==   field shows for EVERYTHING EXCEPT one value
+  and   TWO different fields must both match
+
+Boolean values must be "true" or "false" (not yes/no/on/off)
+Values must match option values exactly (not display names)
+```
+
+---
+
+## Generated Files Reference
+
+Every `generate_block` creates 4 files:
+
+```
+blocks/[name]/
+  [name].js         ESLint-safe decorate() stub with JSDoc field reference
+  [name].css        .blockname { display: block; }
+  _[name].json      definitions + models + filters (correct UE schema)
+  README.md         Field table, conditions, content tree, authoring steps
+```
+
+After generating — always run:
+
+```bash
+npm run build:json
+git add .
+git commit -m "feat: [block-name] block"
+git push
+```
+
+Then add to section filter if needed:
+
+```
+Add [block-name] to the section filter
+```
+
+---
+
+## Protected Files
+
+These files are **never edited directly** — MCP tools manage them safely:
+
+```
+component-definition.json    ← managed by npm run build:json
+component-filters.json       ← managed by add_to_section_filter tool only
+component-models.json        ← managed by npm run build:json
+models/_section.json         ← auto-updated by generate_block for section wrappers
+blocks/*/  *.js *.css *.json ← managed by generate_block tool only
+```
+
+---
+
+## Troubleshooting
+
+| Problem | Cause | Fix |
+|---|---|---|
+| Block not in UE picker | Wrong resourceType | Regenerate with MCP — never edit manually |
+| Can't add child items | child uses `block/v1/block` not `block/v1/block/item` | Regenerate with MCP |
+| 409 JCR conflict on save | `:items` in template | Run `validate_block [name]` to confirm, regenerate |
+| Condition not working | Wrong JSONLogic syntax | Use `update_condition` tool not file edit |
+| Commit blocked by ESLint | `no-unused-vars` in generated JS | Update aem-eds-mcp to v2.1 |
+| Session lost after restart | VS Code crash | Sessions auto-persist to `.block-session.json` |
+| Wrong condition values | Copilot inferred wrong | Always confirm condition before applying |
+| Section wrapper not in tabs | `_section.json` not updated | Regenerate — tool auto-updates it |
+
+---
+
+## Session Lifecycle
+
+```
+init_block          ← always first — creates session
+  ↓
+set_block_type      ← if not already set
+  ↓
+add_parent_field    ← one call per field
+  ↓
+add_tab_group       ← for simple-tabs / container-tabs only
+  ↓
+set_child           ← for container / container-tabs only
+  ↓
+add_child_field     ← one call per child field
+  ↓
+add_variant         ← optional — for layout variants
+  ↓
+add_condition       ← adds to pending state
+  ↓
+confirm_condition   ← user confirms values → applied
+  ↓
+preview_session     ← always before generate
+  ↓
+generate_block      ← writes all 4 files
+```
+
+Sessions persist for **24 hours**.  
+To resume: `"What sessions are in progress?"`  
+To cancel: `"Discard the [name] session"`  
+To undo: `"Undo that last change"`
+
+---
+
+## Claude Code Setup
+
+```bash
+claude mcp add aem-eds --scope project -- npx -y aem-eds-mcp .
+git add .claude.json
+git commit -m "feat: aem-eds MCP"
+git push
+```
+
+---
+
+*aem-eds-mcp v2.1 | 26 tools | Zero ESLint errors | Tested on Tata Power EDS*
+
+---
+
+## AGENTS.md
+
+Add this file to your EDS project root as `AGENTS.md`.
+It tells Copilot and Claude Code exactly how to behave with MCP tools.
+
+```markdown
+# AEM EDS Block Development Rules
+
+This file governs how AI assistants (GitHub Copilot, Claude Code)
+create and modify blocks in this AEM Edge Delivery Services project.
+
+---
+
+## MCP Server
+
+The `aem-eds` MCP server (aem-eds-mcp v2.1) is connected to this project.
+It provides 26 tools for safe block scaffolding.
+
+Always check: MCP: aem-eds → Running → 26 tools discovered
+
+---
+
+## FORBIDDEN — Never do these
+
+NEVER write or edit any file inside blocks/
+NEVER write or edit component-definition.json
+NEVER write or edit component-filters.json
+NEVER write or edit component-models.json
+NEVER write or edit models/_section.json
+NEVER write or edit _blockname.json directly
+NEVER write or edit blockname.js directly
+NEVER write or edit blockname.css directly
+NEVER use file creation tools to create block files
+NEVER call read_existing_block_for_reference and then edit the file
+NEVER apply a condition without calling confirm_condition first
+NEVER call generate_block without calling preview_session first
+
+Direct file editing produces broken JSON that fails silently in
+Universal Editor. The MCP tools guarantee correct schema every time.
+
+---
+
+## REQUIRED — Always do these
+
+### Creating a new block
+
+1. init_block("block-name")
+2. set_block_type("block-name", "simple|container|simple-tabs|container-tabs|section-wrapper")
+3. add_parent_field()    — one call per parent field
+4. add_tab_group()       — for simple-tabs and container-tabs only
+5. set_child()           — for container and container-tabs only
+6. add_child_field()     — one call per child field
+7. add_variant()         — if layout variants needed
+8. add_condition()       — for conditional fields
+9. confirm_condition()   — MUST confirm each condition with user
+10. preview_session()    — ALWAYS before generate
+11. generate_block()     — writes all files safely
+12. add_to_section_filter("block-name") — run after generate
+
+### Modifying an existing block
+
+1. clone_block("existing-name", "new-name-or-same-name")
+2. Make changes using add/remove field tools
+3. preview_session()
+4. generate_block()
+
+### Fixing a wrong condition
+
+1. update_condition()   — NOT direct file edit
+2. confirm_condition()  — user confirms new values
+
+---
+
+## Tool Reference
+
+### Session tools
+init_block                 Start a new block session
+set_block_type             Set type: simple / simple-tabs / container / container-tabs / section-wrapper
+add_parent_field           Add one parent field
+add_tab_group              Group parent fields into UE Properties panel tabs
+set_child                  Set child item name for container blocks
+add_child_field            Add one child field
+add_variant                Add a layout variant option
+
+### Condition tools
+add_condition              Add conditional rule → goes to PENDING state
+confirm_condition          Apply pending condition after user confirms values
+update_condition           Replace wrong condition → goes to PENDING state
+
+### Session management
+remove_field               Remove a field (cascade-checks conditions)
+preview_session            Show full block spec before generating
+undo_last_action           Undo last mutation (history max 20)
+list_sessions              List all in-progress sessions
+discard_session            Cancel and delete a session
+
+### Generate tools
+generate_block             Write all 4 files (validates JSON, atomic writes)
+clone_block                Create session from existing block JSON
+validate_block             Audit existing block for schema issues
+
+### Read-only tools (NEVER edit after reading)
+read_existing_block_for_reference   Read _blockname.json — reference only
+read_component_filters              Read component-filters.json — reference only
+read_component_definition           Read component-definition.json — reference only
+read_component_models               Read component-models.json — reference only
+
+### Safe update tools
+add_to_section_filter      Only safe way to update component-filters.json
+
+### Utility tools
+list_blocks                List all blocks in the project
+remove_block               Delete a block and its files
+get_safety_rules           Returns complete forbidden/required list
+
+---
+
+## Condition Rules
+
+Who can control conditions:
+  ✔ select, radio-group, boolean
+  ✖ text, textarea, richtext, number, reference, aem-content, aem-tag
+
+Operators:
+  ===    shows for EXACTLY ONE value
+  or     shows for ANY OF multiple values
+  !==    shows for everything EXCEPT one value
+  and    TWO different fields must BOTH match
+
+Boolean values: "true" or "false" only (not yes/no/on/off)
+Values must match option values not display names
+
+Confirmation flow (mandatory):
+  add_condition() → returns PENDING → user confirms → confirm_condition()
+  Never skip confirm_condition.
+
+---
+
+## Field Schema Rules
+
+number:       min, max, step       → TOP-LEVEL
+text:         minLength, maxLength → INSIDE validation
+aem-content:  rootPath             → INSIDE validation
+boolean:      customErrorMsg       → INSIDE validation
+all types:    required, readOnly, hidden, description → TOP-LEVEL
+
+NEVER add ":items" to any template — causes 409 JCR conflicts.
+
+---
+
+## Block Type resourceType Strings
+
+parent block:    core/franklin/components/block/v1/block
+child item:      core/franklin/components/block/v1/block/item
+section wrapper: core/franklin/components/section/v1/section
+
+Wrong resourceType = block never appears in UE picker (no error shown).
+
+---
+
+## After generate_block — always run
+
+Add to section filter:  add_to_section_filter("block-name")
+Build JSON:             npm run build:json
+Commit:                 git add . && git commit -m "feat: block-name" && git push
+
+---
+
+## Presets
+
+init_block("name", blockType, preset="carousel|hero|accordion|faq|cards|banner|teaser")
+
+---
+
+## Getting Help
+
+"Show me the safety rules"       → get_safety_rules
+"What sessions are in progress?" → list_sessions
+"Validate the [name] block"      → validate_block
+"What blocks exist?"             → list_blocks
+```
+
