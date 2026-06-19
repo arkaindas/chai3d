@@ -1,33 +1,19 @@
-Create a block called mycarousel.
-
-It is a container block with repeating child items.
-
-Parent config fields:
-- layoutVariant: select with options Grid (grid), Carousel Peek (carousel-peek), 
-  Carousel Side (carousel-side). Default: carousel-peek
-- autoplay: boolean toggle. Default: false
-- interval: number, min 1 max 20, default 5. Label: "Interval (seconds)"
-- pauseOnHover: boolean. Default: true. Label: "Pause on Hover"
-- infiniteLoop: boolean. Default: false. Label: "Infinite Loop"
-- sectionTitle: text
-- sectionContent: richtext
-- backgroundImage: reference. Label: "Section Background Image"
-
-Child item name: mycarousel-item
-Child fields:
-- media: reference, required. Label: "Media (Image or Video)"
-- mediaType: select with options Image (image), Video (video). Default: image
-- caption: text. Label: "Caption"
-- description: richtext
-- ctaLabel: text. Label: "CTA Label"
-- ctaUrl: aem-content, rootPath: /content/tatapower. Label: "CTA URL"
-
-Conditional fields:
-- autoplay should only show when layoutVariant is carousel-peek OR carousel-side
-- interval should only show when autoplay is true
-- pauseOnHover should only show when autoplay is true
-- infiniteLoop should only show when layoutVariant is carousel-peek OR carousel-side
-
-Use init_block first, then build step by step.
-Do NOT create any files directly.
-Use session tools only and call preview_session before generate_block.
+{
+  "servers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@anthropic-ai/mcp-playwright"]
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": ["-y", "@anthropic-ai/mcp-sequential-thinking"]
+    },
+    "figma": {
+      "url": "https://mcp.figma.com/mcp"
+    }
+  }
+}
