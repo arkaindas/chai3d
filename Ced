@@ -1,19 +1,95 @@
-{
-  "servers": {
-    "context7": {
-      "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp"]
-    },
-    "playwright": {
-      "command": "npx",
-      "args": ["-y", "@anthropic-ai/mcp-playwright"]
-    },
-    "sequential-thinking": {
-      "command": "npx",
-      "args": ["-y", "@anthropic-ai/mcp-sequential-thinking"]
-    },
-    "figma": {
-      "url": "https://mcp.figma.com/mcp"
-    }
-  }
-}
+# AEM Copilot Setup - Installation Guide
+
+## What's Included
+
+### 1. `.vscode/mcp.json` — MCP Server Connections
+- **Context7**: Live AEM/HTL/Granite UI documentation (no hallucinated APIs)
+- **Playwright**: E2E testing and browser automation on localhost:4502/4503
+- **Sequential Thinking**: Complex architecture decisions
+- **Figma**: Design-to-code pipeline (needs Figma account)
+
+### 2. `.github/copilot-instructions.md` — Project Rules
+Teaches Copilot your AEM Cloud conventions: HTL syntax, BEM naming,
+clientlib patterns, dialog XML, performance budgets, accessibility standards.
+
+### 3. `.github/chatmodes/` — Sub-Agents (6 specialists)
+- `htl-developer.chatmode.md` — HTL template generation
+- `dialog-builder.chatmode.md` — Coral UI dialog XML
+- `sass-developer.chatmode.md` — BEM SASS partials
+- `js-developer.chatmode.md` — Clientlib-safe ES6 modules
+- `test-writer.chatmode.md` — Jest + Playwright tests
+- `code-reviewer.chatmode.md` — AEM best practices review
+- `figma-to-aem.chatmode.md` — Figma design → full AEM component
+
+### 4. `.github/prompts/` — Reusable Prompt Templates
+- `create-component.prompt.md` — Generate complete component (all files)
+- `create-dialog.prompt.md` — Generate dialog XML only
+- `create-tests.prompt.md` — Generate unit + E2E tests
+- `review-code.prompt.md` — Review code against AEM standards
+- `figma-to-aem.prompt.md` — Convert Figma frame to AEM component
+
+---
+
+## Installation Steps
+
+### Step 1: Copy mcp.json
+Replace your existing `.vscode/mcp.json` (or create it):
+```
+copy /Y ".vscode\mcp.json" "C:\tatapower\code\tp\.vscode\mcp.json"
+```
+
+### Step 2: Copy .github folder
+```
+xcopy /E /I ".github" "C:\tatapower\code\tp\.github"
+```
+
+### Step 3: Add .github to .gitignore (so it stays local only)
+Add this line to your `.gitignore`:
+```
+.github/
+.vscode/mcp.json
+```
+
+### Step 4: Verify MCP Servers in VS Code
+1. Press Ctrl+Shift+P
+2. Type "MCP: List Servers"
+3. Start all 4 servers
+4. Figma will ask for OAuth login on first use
+
+### Step 5: Test a Chat Mode
+1. Open Copilot Chat (Ctrl+Shift+I)
+2. Click the model/mode selector at the top
+3. You should see all 7 chat modes listed
+4. Select "HTL Developer"
+5. Ask: "Create an HTL template for a hero banner with title, description, and CTA"
+
+### Step 6: Test a Prompt Template
+1. In Copilot Chat, type `#`
+2. You should see your prompt templates listed
+3. Select "create-component"
+4. Fill in the component name and fields
+
+---
+
+## How to Use
+
+### Generate a component from scratch:
+1. Select `figma-to-aem` chat mode
+2. Paste your Figma URL
+3. Copilot generates all 5 files
+
+### Generate a component manually:
+1. Select `htl-developer` mode → get HTL
+2. Switch to `dialog-builder` mode → get dialog XML
+3. Switch to `sass-developer` mode → get SASS
+4. Switch to `js-developer` mode → get JS
+5. Switch to `test-writer` mode → get tests
+
+### Review code:
+1. Select the files to review
+2. Switch to `code-reviewer` mode
+3. Type "Review this component"
+
+### Run E2E tests:
+1. Ensure AEM is running on localhost:4502/4503
+2. Playwright MCP can automate browser testing directly from chat
