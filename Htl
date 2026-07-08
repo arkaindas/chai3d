@@ -1,23 +1,25 @@
-internshipDetails: Yup.string()
-  .max(500, "Maximum 500 characters allowed")
-  .notRequired(),
+/* Add internship record, if provided */
+if (values.internshipDetails || values.internshipStartDate || values.internshipEndDate) {
+  const internshipPayload = {
+    experienceId: uuidv4(),
+    employerType: "",
+    employerName: "",
+    jobTitle: values.internshipDetails || "",
+    durationFrom: values.internshipStartDate
+      ? new Date(values.internshipStartDate).toISOString()
+      : null,
+    durationTo: values.internshipEndDate
+      ? new Date(values.internshipEndDate).toISOString()
+      : null,
+    natureOfEmployment: "",
+    lastCtc: 0,
+    jobId: jobPostId,
+    experienceCertificate: null,
+    createdBy: candidateId,
+    createdOn: new Date().toISOString(),
+    candidateId: candidateId,
+    isInternShip: true,
+  };
 
-internshipStartDate: Yup.string().notRequired(),
-
-internshipEndDate: Yup.string()
-  .notRequired()
-  .test(
-    "internship-end-after-start",
-    "Internship end date cannot be before start date",
-    function (value) {
-      const { internshipStartDate } = this.parent;
-      if (!internshipStartDate || !value) return true;
-
-      const start = new Date(internshipStartDate);
-      const end = new Date(value);
-
-      if (isNaN(start.getTime()) || isNaN(end.getTime())) return true;
-
-      return end >= start;
-    }
-  ),
+  await addCandidateExperience(internshipPayload);
+}
