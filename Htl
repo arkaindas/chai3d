@@ -1,63 +1,23 @@
-<div className="mb-4">
-  <h4>Internship</h4>
+internshipDetails: Yup.string()
+  .max(500, "Maximum 500 characters allowed")
+  .notRequired(),
 
-  <div className="row">
-    <div className="col-xl-4 col-sm-6 col-lg-6 mb-2">
-      <label className="text-label">Internship Details</label>
-      <Field
-        as="textarea"
-        name="internshipDetails"
-        className="form-control"
-        placeholder="Internship details"
-        rows={3}
-      />
-      <ErrorMessage name="internshipDetails" component="p" className="text-danger" />
-    </div>
+internshipStartDate: Yup.string().notRequired(),
 
-    <div className="col-xl-4 col-sm-6 col-lg-6 mb-2">
-      <label className="text-label">Internship Start Date</label>
-      <Field
-        type="date"
-        name="internshipStartDate"
-        className="form-control"
-        max={new Date().toISOString().split("T")[0]}
-        onInput={(e) => {
-          const value = e.target.value;
-          const parts = value.split("-");
-          if (parts[0]?.length > 4) {
-            parts[0] = parts[0].slice(0, 4);
-            e.target.value = parts.join("-");
-          }
-        }}
-      />
-      <ErrorMessage name="internshipStartDate" component="p" className="text-danger" />
-    </div>
+internshipEndDate: Yup.string()
+  .notRequired()
+  .test(
+    "internship-end-after-start",
+    "Internship end date cannot be before start date",
+    function (value) {
+      const { internshipStartDate } = this.parent;
+      if (!internshipStartDate || !value) return true;
 
-    <div className="col-xl-4 col-sm-6 col-lg-6 mb-2">
-      <label className="text-label">Internship End Date</label>
-      <Field
-        type="date"
-        name="internshipEndDate"
-        className="form-control"
-        max={new Date().toISOString().split("T")[0]}
-        onInput={(e) => {
-          const value = e.target.value;
-          const parts = value.split("-");
-          if (parts[0]?.length > 4) {
-            parts[0] = parts[0].slice(0, 4);
-            e.target.value = parts.join("-");
-          }
-        }}
-      />
-      <ErrorMessage name="internshipEndDate" component="p" className="text-danger" />
-    </div>
+      const start = new Date(internshipStartDate);
+      const end = new Date(value);
 
-    {values.internshipStartDate &&
-      values.internshipEndDate &&
-      new Date(values.internshipEndDate) < new Date(values.internshipStartDate) && (
-        <div className="col-12 mt-2">
-          <p className="text-danger">Internship end date cannot be before start date.</p>
-        </div>
-    )}
-  </div>
-</div>
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) return true;
+
+      return end >= start;
+    }
+  ),
