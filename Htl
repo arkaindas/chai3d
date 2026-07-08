@@ -1,25 +1,23 @@
-/* Add internship record, if provided */
-if (values.internshipDetails || values.internshipStartDate || values.internshipEndDate) {
-  const internshipPayload = {
-    experienceId: uuidv4(),
-    employerType: "",
-    employerName: "",
-    jobTitle: values.internshipDetails || "",
-    durationFrom: values.internshipStartDate
-      ? new Date(values.internshipStartDate).toISOString()
-      : null,
-    durationTo: values.internshipEndDate
-      ? new Date(values.internshipEndDate).toISOString()
-      : null,
-    natureOfEmployment: "",
-    lastCtc: 0,
-    jobId: jobPostId,
-    experienceCertificate: null,
-    createdBy: candidateId,
-    createdOn: new Date().toISOString(),
-    candidateId: candidateId,
-    isInternShip: true,
-  };
+<Field
+  type="date"
+  name={`employers[${index}].periodFrom`}
+  className="form-control"
+  placeholder="Type here"
+  min={values.internshipEndDate || undefined}
+  max={new Date().toISOString().split("T")[0]}
+  onInput={(e) => { ... }}
+/>
 
-  await addCandidateExperience(internshipPayload);
-}
+
+periodFrom: Yup.string()
+  .required("Period from is required")
+  .test(
+    "after-internship-end",
+    "Employment start date must be after internship end date",
+    function (value) {
+      const internshipEndDate = this.options.context?.internshipEndDate;
+      if (!internshipEndDate || !value) return true;
+      return new Date(value) >= new Date(internshipEndDate);
+    }
+  ),
+
