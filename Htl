@@ -1,23 +1,12 @@
-<Field
-  type="date"
-  name={`employers[${index}].periodFrom`}
-  className="form-control"
-  placeholder="Type here"
-  min={values.internshipEndDate || undefined}
-  max={new Date().toISOString().split("T")[0]}
-  onInput={(e) => { ... }}
-/>
-
-
 periodFrom: Yup.string()
   .required("Period from is required")
   .test(
     "after-internship-end",
     "Employment start date must be after internship end date",
     function (value) {
-      const internshipEndDate = this.options.context?.internshipEndDate;
+      const rootValues = this.from?.[this.from.length - 1]?.value;
+      const internshipEndDate = rootValues?.internshipEndDate;
       if (!internshipEndDate || !value) return true;
       return new Date(value) >= new Date(internshipEndDate);
     }
   ),
-
