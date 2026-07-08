@@ -1,135 +1,63 @@
----
-description: "Generate a complete AEM component with all files"
-mode: "htl-developer"
----
+<div className="mb-4">
+  <h4>Internship</h4>
 
-Create a complete AEM Cloud Service component named `{{ component_name }}` with the following fields:
-{{ field_list }}
+  <div className="row">
+    <div className="col-xl-4 col-sm-6 col-lg-6 mb-2">
+      <label className="text-label">Internship Details</label>
+      <Field
+        as="textarea"
+        name="internshipDetails"
+        className="form-control"
+        placeholder="Internship details"
+        rows={3}
+      />
+      <ErrorMessage name="internshipDetails" component="p" className="text-danger" />
+    </div>
 
-Generate ALL of these files:
+    <div className="col-xl-4 col-sm-6 col-lg-6 mb-2">
+      <label className="text-label">Internship Start Date</label>
+      <Field
+        type="date"
+        name="internshipStartDate"
+        className="form-control"
+        max={new Date().toISOString().split("T")[0]}
+        onInput={(e) => {
+          const value = e.target.value;
+          const parts = value.split("-");
+          if (parts[0]?.length > 4) {
+            parts[0] = parts[0].slice(0, 4);
+            e.target.value = parts.join("-");
+          }
+        }}
+      />
+      <ErrorMessage name="internshipStartDate" component="p" className="text-danger" />
+    </div>
 
-1. **Component definition** (`ui.apps/src/main/content/jcr_root/apps/tp/components/{{ component_name }}/.content.xml`):
-   - jcr:primaryType="cq:Component"
-   - componentGroup="Tata Power"
-   - Set appropriate jcr:title
+    <div className="col-xl-4 col-sm-6 col-lg-6 mb-2">
+      <label className="text-label">Internship End Date</label>
+      <Field
+        type="date"
+        name="internshipEndDate"
+        className="form-control"
+        max={new Date().toISOString().split("T")[0]}
+        onInput={(e) => {
+          const value = e.target.value;
+          const parts = value.split("-");
+          if (parts[0]?.length > 4) {
+            parts[0] = parts[0].slice(0, 4);
+            e.target.value = parts.join("-");
+          }
+        }}
+      />
+      <ErrorMessage name="internshipEndDate" component="p" className="text-danger" />
+    </div>
 
-2. **Dialog** (`ui.apps/.../{{ component_name }}/_cq_dialog/.content.xml`):
-   - Use Coral UI 3 / Granite UI widgets
-   - Tab layout if 3+ fields
-   - All fields with fieldLabel, fieldDescription
-   - Required fields marked
-
-3. **HTL template** (`ui.apps/.../{{ component_name }}/{{ component_name }}.html`):
-   - data-sly-use for Sling Model
-   - Author-mode placeholder with data-sly-test="${wcmmode.edit}"
-   - Semantic HTML, BEM classes, proper escaping
-
-4. **SASS** (`ui.frontend/src/components/{{ component_name }}/_{{ component_name }}.scss`):
-   - BEM naming
-   - Mobile-first responsive
-   - CSS custom properties for tokens
-
-5. **JavaScript** (`ui.frontend/src/components/{{ component_name }}/{{ component_name }}.js`):
-   - ES6 module
-   - MutationObserver pattern for AEM editor
-   - Event delegation
-   - JSDoc comments
-
-
-
-
-
----
-description: "Generate AEM component dialog XML from a list of fields"
-mode: "dialog-builder"
----
-
-Create a `_cq_dialog/.content.xml` for an AEM component with these authorable fields:
-{{ field_list }}
-
-Requirements:
-- Use Coral UI 3 / Granite UI widgets
-- Group into logical tabs if 3+ fields
-- All fields must have `fieldLabel` and `fieldDescription`
-- Mark required fields
-- Use `./` prefix on all `name` attributes
-- Include proper namespaces: jcr, sling, cq, granite
-- Use pathfield with rootPath="/content" for link fields
-- Use fileupload for image fields with correct mimeTypes
-
-
-
-
-
----
-description: "Generate Jest unit test and Playwright E2E test for an AEM component"
-mode: "test-writer"
----
-
-Write tests for the AEM component `{{ component_name }}`:
-
-1. **Jest Unit Test** (`{{ component_name }}.test.js`):
-   - Test component initialization
-   - Test DOM manipulation
-   - Test event handlers
-   - Test error scenarios
-   - Test author-mode vs publish-mode behavior
-   - Mock AEM objects (Granite, CQ.WCM)
-   - Target 80%+ coverage
-
-2. **Playwright E2E Test** (`{{ component_name }}.spec.js`):
-   - Test component renders on publish (localhost:4503)
-   - Test responsive across 375px, 768px, 1440px viewports
-   - Test accessibility with axe-core
-   - Test keyboard navigation
-   - Take visual regression screenshots
-
-
-
-
----
-description: "Review AEM frontend code against best practices"
-mode: "code-reviewer"
----
-
-Review the following AEM component code for:
-
-1. **HTL**: correct data-sly-* usage, proper escaping, accessibility, author-mode handling
-2. **Dialog XML**: correct widgets, field labels, required fields, tab structure
-3. **SASS**: BEM naming, mobile-first, nesting depth, no !important, focus states
-4. **JavaScript**: no global pollution, event delegation, MutationObserver, error handling
-5. **Performance**: no render-blocking, lazy loading, CWV impact
-6. **Accessibility**: semantic HTML, alt text, labels, keyboard nav, ARIA, color contrast
-
-Output a review with:
-- **Summary**: Pass / Needs Changes / Reject
-- **Critical issues** (must fix before merge)
-- **Major issues** (should fix)
-- **Minor issues** (nice to fix)
-- **Suggestions** (optional improvements)
-- Code fix examples for each issue
-
-
-
----
-description: "Convert a Figma design into a complete AEM component"
-mode: "figma-to-aem"
----
-
-Analyze the Figma design at this URL and convert it into a complete AEM Cloud Service component:
-
-{{ figma_url }}
-
-Steps:
-1. Read the Figma frame using the Figma MCP tool
-2. Identify all layers: text, images, buttons, backgrounds, icons
-3. Extract design tokens: colors, fonts, spacing, border-radius
-4. Map each layer to an authorable dialog field
-5. Generate ALL component files:
-   - `.content.xml` (component definition)
-   - `_cq_dialog/.content.xml` (dialog with correct Granite UI widgets)
-   - `component.html` (HTL with BEM classes and proper escaping)
-   - `_component.scss` (SASS matching exact Figma specs, mobile-first)
-   - `component.js` (if the component has interactions)
-6. Include responsive variants matching the Figma breakpoints
-
+    {values.internshipStartDate &&
+      values.internshipEndDate &&
+      new Date(values.internshipEndDate) < new Date(values.internshipStartDate) && (
+        <div className="col-12 mt-2">
+          <p className="text-danger">Internship end date cannot be before start date.</p>
+        </div>
+    )}
+  </div>
+</div>
