@@ -1,12 +1,25 @@
-periodFrom: Yup.string()
-  .required("Period from is required")
-  .test(
-    "after-internship-end",
-    "Employment start date must be after internship end date",
-    function (value) {
-      const rootValues = this.from?.[this.from.length - 1]?.value;
-      const internshipEndDate = rootValues?.internshipEndDate;
-      if (!internshipEndDate || !value) return true;
-      return new Date(value) >= new Date(internshipEndDate);
-    }
-  ),
+disciplineTypeMapping: {
+  title: "Add Discipline Mapping",
+  apiUrl: "http://13.233.124.147/api/Masters/AddDisciplineJobMaster",
+
+  parent: {
+    key: "jobNameMasterId",
+    label: "Job Names",
+    listApi: "http://13.233.124.147/api/Masters/GetJobNames",
+    valueKey: "jobNameMasterId",
+    labelKey: "jobName",
+  },
+
+  columns: [
+    { key: "jobName", label: "Job Name" },
+    { key: "discipline", label: "Discipline" },
+    { key: "disciplineIsActive", label: "Display on screen" },
+    { key: "disciplineIsRequired", label: "Is Required" },
+  ],
+
+  fields: [
+    { name: "discipline", label: "Discipline", required: true },
+    { name: "disciplineIsActive", label: "Display On Screen", type: "checkbox" },
+    { name: "disciplineIsRequired", label: "Is Mandatory", type: "checkbox" },
+  ],
+},
