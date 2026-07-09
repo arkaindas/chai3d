@@ -1,25 +1,14 @@
-disciplineTypeMapping: {
-  title: "Add Discipline Mapping",
-  apiUrl: "http://13.233.124.147/api/Masters/AddDisciplineJobMaster",
-
-  parent: {
-    key: "jobNameMasterId",
-    label: "Job Names",
-    listApi: "http://13.233.124.147/api/Masters/GetJobNames",
-    valueKey: "jobNameMasterId",
-    labelKey: "jobName",
-  },
-
-  columns: [
-    { key: "jobName", label: "Job Name" },
-    { key: "discipline", label: "Discipline" },
-    { key: "disciplineIsActive", label: "Display on screen" },
-    { key: "disciplineIsRequired", label: "Is Required" },
-  ],
-
-  fields: [
-    { name: "discipline", label: "Discipline", required: true },
-    { name: "disciplineIsActive", label: "Display On Screen", type: "checkbox" },
-    { name: "disciplineIsRequired", label: "Is Mandatory", type: "checkbox" },
-  ],
-},
+{selectedMaster === "disciplineTypeMapping" && f.name === "discipline" ? (
+  <Form.Select
+    value={formData[f.name] || ""}
+    onChange={(e) => handleChange(f.name, e.target.value)}
+    required
+  >
+    <option value="">-- Select Discipline --</option>
+    {disciplineMasterList.map((d) => (
+      <option key={d.disciplineId} value={d.discipline}>
+        {d.discipline}
+      </option>
+    ))}
+  </Form.Select>
+) : ...
