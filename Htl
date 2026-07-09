@@ -1,17 +1,3 @@
-useEffect(() => {
-  if (selectedMaster !== "disciplineTypeMapping") return;
-
-  const loadDisciplines = async () => {
-    try {
-      const res = await axios.get(
-        "http://13.233.124.147/api/Masters/GetDisciplineList" // ⚠️ confirm exact endpoint
-      );
-      setDisciplineMasterList(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error("Discipline load failed", err);
-      setDisciplineMasterList([]);
-    }
-  };
-
-  loadDisciplines();
-}, [selectedMaster]);
+const isMBBS = values?.education?.qualifications?.some(
+  (q) => q?.qualificationName?.toUpperCase() === "MBBS"
+);
