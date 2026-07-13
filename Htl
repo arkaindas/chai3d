@@ -1,8 +1,23 @@
-export async function getJobDisciplineListByJobName(jobNameId) {
-  return axios.get(`${API_BASE_URL}/Job/GetDiscipline`, {
-    params: { JobNameId: jobNameId },
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-}
+const [jobDisciplineList, setJobDisciplineList] = useState([]);
+
+const handleJobNameChange = (jobName) => {
+  // existing PWBD filtering — unchanged
+  if (!jobName) {
+    setJobPwbdCategoryList(allPwbdCategories);
+    setJobDisciplineList([]);
+    return;
+  }
+
+  const filtered = allPwbdCategories.filter(
+    (c) => !c.jobName || c.jobName === jobName
+  );
+  setJobPwbdCategoryList(filtered);
+
+  // NEW: fetch disciplines scoped to this job
+  getJobDisciplineListByJobName(jobName)
+    .then((res) => setJobDisciplineList(res.data || []))
+    .catch((err) => {
+      console.error("Discipline fetch failed", err);
+      setJobDisciplineList([]);
+    });
+};
