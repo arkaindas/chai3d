@@ -1,21 +1,3 @@
-// FMGE validation
-const fmgeQual = values.education.qualifications.find((q) => q?.data?.isFMGE);
-if (fmgeQual) {
-  const f = fmgeQual.data.fmgeDetails || {};
-  const fmgeErrors = [];
-
-  if (!f.passingYear) fmgeErrors.push("Year of Passing");
-  if (!f.registrationNo) fmgeErrors.push("Registration No.");
-  if (!f.totalScore || Number(f.totalScore) <= 0) fmgeErrors.push("Total Score");
-  if (!f.scoreObtained) fmgeErrors.push("Score Obtained");
-  if (f.totalScore && f.scoreObtained && Number(f.scoreObtained) > Number(f.totalScore)) {
-    fmgeErrors.push("Score Obtained (cannot exceed Total Score)");
-  }
-  if (!f.certificate) fmgeErrors.push("Certificate Upload");
-
-  if (fmgeErrors.length > 0) {
-    errorMessages.push(
-      `Please complete FMGE details: ${fmgeErrors.join(", ")}.`
-    );
-  }
-}
+console.log("All qualifications isFMGE values:", 
+  values.education.qualifications.map(q => ({ name: q?.qualificationName, isFMGE: q?.data?.isFMGE }))
+);
