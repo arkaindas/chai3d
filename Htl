@@ -1,9 +1,8 @@
-const jobName =
-  parentList.find((p) => p.jobNameMasterId === formData.jobNameMasterId)
-    ?.jobName || "";
-
-const rows = Array.isArray(res.data)
-  ? res.data.map((row) => ({ ...row, jobName }))
-  : [];
-
-setList(rows);
+export async function getJobDisciplineListByJobName(jobNameId) {
+  return axios.get(`${API_BASE_URL}/Job/GetDiscipline`, {
+    params: { JobNameId: jobNameId },
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
