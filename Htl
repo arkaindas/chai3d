@@ -1,16 +1,61 @@
-onChange={(e) => {
-  const idx = Number(e.target.value);
+{values.education.qualifications[idx]?.data?.isFMGE && (
+  <section className="mt-4">
+    <h5>FMGE</h5>
+    <div className="row mb-3">
+      <div className="col-md-4 mb-3">
+        <label>Year of Passing</label>
+        <Field
+          as="select"
+          name={`education.qualifications.${idx}.data.fmgeDetails.passingYear`}
+          className="form-control"
+        >
+          <option value="">Select</option>
+          {Array.from({ length: 30 }, (_, i) => {
+            const year = new Date().getFullYear() - i;
+            return <option key={year} value={year}>{year}</option>;
+          })}
+        </Field>
+      </div>
 
-  // STEP 1: Detect FMGE (MBBS outside India)
-  const selectedQual = mandatoryQualifications.find((q) => q._index === idx);
-  const isFMGE = selectedQual?.qualificationName === "MBBS outside India";
+      <div className="col-md-4 mb-3">
+        <label>Registration No./Roll No.</label>
+        <Field
+          name={`education.qualifications.${idx}.data.fmgeDetails.registrationNo`}
+          type="text"
+          className="form-control"
+        />
+      </div>
 
-  // ✅ ANY ONE QUALIFICATION LOGIC   <-- your existing check stays here
-  if (
-    isAnyOneQualification &&
-    selectedMandatoryIndexes.length >= 1
-  ) {
-    alert("Only one qualification can be added.");
-    return;
-  }
-  ...
+      <div className="col-md-4 mb-3">
+        <label>Total Score</label>
+        <input type="text" className="form-control" value="300" readOnly />
+      </div>
+
+      <div className="col-md-4 mb-3">
+        <label>Score Obtained</label>
+        <Field
+          name={`education.qualifications.${idx}.data.fmgeDetails.scoreObtained`}
+        >
+          {({ field, form }) => (
+            <input
+              {...field}
+              type="text"
+              className="form-control"
+              onChange={(e) => {
+                if (!/^\d*$/.test(e.target.value)) return;
+                form.setFieldValue(field.name, e.target.value);
+              }}
+            />
+          )}
+        </Field>
+      </div>
+
+      <div className="col-md-4 mb-3">
+        <label>Certificate Upload</label>
+        <RenderFileUpload
+          fieldPath={`education.qualifications.${idx}.data.fmgeDetails.certificate`}
+        />
+      </div>
+    </div>
+  </section>
+)}
