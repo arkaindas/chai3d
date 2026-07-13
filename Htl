@@ -1,18 +1,15 @@
-periodFrom: Yup.string()
-  .required("Period from is required")
-  .test(
-    "after-internship-end",
-    "Employment start date must be after internship end date",
-    function (value) {
-      const rootValues = this.from?.[this.from.length - 1]?.value;
+const payload =
+  selectedMaster === "disciplineTypeMapping"
+    ? {
+        jobNameId: formData.jobNameMasterId,
+        jobDisciplineName: formData.jobDisciplineName,
+        addedOn: new Date().toISOString(),
+        updatedOn: new Date().toISOString(),
+      }
+    : {
+        ...formData,
+        addedOn: new Date().toISOString(),
+        updatedOn: new Date().toISOString(),
+      };
 
-      const isMBBS = rootValues?.education?.qualifications?.some(
-        (q) => q?.qualificationName?.toUpperCase() === "MBBS"
-      );
-      if (!isMBBS) return true;
-
-      const internshipEndDate = rootValues?.internshipEndDate;
-      if (!internshipEndDate || !value) return true;
-      return new Date(value) > new Date(internshipEndDate);
-    }
-  ),
+await postMasterData(config.apiUrl, payload);
