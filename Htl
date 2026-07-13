@@ -1,15 +1,5 @@
-passingYear: isFMGEQual
-    ? (d.fmgeDetails?.passingYear || null)
-    : (d.passingYear ? d.passingYear : null),
-
-majorFieldOfStudy: d.majorFieldOfStudy || null,
-
-registrationNo: isFMGEQual
-    ? (d.fmgeDetails?.registrationNo || null)
-    : (d.registrationNo || null),
-
-candidateId,
-
-uploadedDocumentLink: isFMGEQual ? fmgeCertificateLink : uploadedDocumentLink,
-
-jobId: jobPostId,
+marks: isFMGEQual
+    ? (d.fmgeDetails?.scoreObtained ? Number(d.fmgeDetails.scoreObtained) : null)
+    : (d.marks !== "" && d.marks !== null && d.marks !== undefined
+        ? Number(d.marks)
+        : null),
