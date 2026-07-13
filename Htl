@@ -1,16 +1,15 @@
-/* FMGE detection + certificate upload */
-const isFMGEQual = q.qualificationName === "MBBS outside India";
-let fmgeCertificateLink = null;
+passingYear: isFMGEQual
+    ? (d.fmgeDetails?.passingYear || null)
+    : (d.passingYear ? d.passingYear : null),
 
-if (isFMGEQual && d.fmgeDetails) {
-  const fmgeCert = d.fmgeDetails.certificate;
-  if (fmgeCert instanceof File) {
-    try {
-      fmgeCertificateLink = await uploadFile(fmgeCert);
-    } catch (err) {
-      console.error("FMGE certificate upload failed", err);
-    }
-  } else if (typeof fmgeCert === "string") {
-    fmgeCertificateLink = fmgeCert;
-  }
-}
+majorFieldOfStudy: d.majorFieldOfStudy || null,
+
+registrationNo: isFMGEQual
+    ? (d.fmgeDetails?.registrationNo || null)
+    : (d.registrationNo || null),
+
+candidateId,
+
+uploadedDocumentLink: isFMGEQual ? fmgeCertificateLink : uploadedDocumentLink,
+
+jobId: jobPostId,
