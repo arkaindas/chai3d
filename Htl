@@ -1,59 +1,18 @@
-{values.education.qualifications[LOOP_VAR]?.data?.isFMGE && (
-  <section className="mt-4">
-    <h5>FMGE</h5>
-    <div className="row mb-3">
-      <div className="col-md-4 mb-3">
-        <label>Year of Passing</label>
-        <Field
-          as="select"
-          name={`education.qualifications.${LOOP_VAR}.data.fmgeDetails.passingYear`}
-          className="form-control"
-        >
-          <option value="">Select</option>
-          {Array.from({ length: 30 }, (_, i) => {
-            const year = new Date().getFullYear() - i;
-            return <option key={year} value={year}>{year}</option>;
-          })}
-        </Field>
-      </div>
-
-      <div className="col-md-4 mb-3">
-        <label>Registration No./Roll No.</label>
-        <Field
-          name={`education.qualifications.${LOOP_VAR}.data.fmgeDetails.registrationNo`}
-          type="text"
-          className="form-control"
-        />
-      </div>
-
-      <div className="col-md-4 mb-3">
-        <label>Total Score</label>
-        <input type="text" className="form-control" value="300" readOnly />
-      </div>
-
-      <div className="col-md-4 mb-3">
-        <label>Score Obtained</label>
-        <Field name={`education.qualifications.${LOOP_VAR}.data.fmgeDetails.scoreObtained`}>
-          {({ field, form }) => (
-            <input
-              {...field}
-              type="text"
-              className="form-control"
-              onChange={(e) => {
-                if (!/^\d*$/.test(e.target.value)) return;
-                form.setFieldValue(field.name, e.target.value);
-              }}
-            />
-          )}
-        </Field>
-      </div>
-
-      <div className="col-md-4 mb-3">
-        <label>Certificate Upload</label>
-        <RenderFileUpload
-          fieldPath={`education.qualifications.${LOOP_VAR}.data.fmgeDetails.certificate`}
-        />
-      </div>
-    </div>
-  </section>
-)}
+<div className="col-md-4 mb-3">
+  <label>Total Score (out of 300)</label>
+  <Field
+    name={`education.qualifications.${actualIndex}.data.fmgeDetails.totalScore`}
+  >
+    {({ field, form }) => (
+      <input
+        {...field}
+        type="text"
+        className="form-control"
+        onChange={(e) => {
+          if (!/^\d*$/.test(e.target.value)) return; // digits only
+          form.setFieldValue(field.name, e.target.value);
+        }}
+      />
+    )}
+  </Field>
+</div>
