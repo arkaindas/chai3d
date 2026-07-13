@@ -1,111 +1,21 @@
-{values.education.qualifications[actualIndex]?.data?.isFMGE && (
-  <section className="mt-4">
-    <h5>FMGE</h5>
-    <div className="row mb-3">
+// FMGE validation
+const fmgeQual = values.education.qualifications.find((q) => q?.data?.isFMGE);
+if (fmgeQual) {
+  const f = fmgeQual.data.fmgeDetails || {};
+  const fmgeErrors = [];
 
-      {/* Year of Passing */}
-      <div className="col-md-4 mb-3">
-        <label>Year of Passing</label>
-        <Field
-          as="select"
-          name={`education.qualifications.${actualIndex}.data.fmgeDetails.passingYear`}
-          className="form-control"
-        >
-          <option value="">Select</option>
-          {Array.from({ length: 30 }, (_, i) => {
-            const year = new Date().getFullYear() - i;
-            return <option key={year} value={year}>{year}</option>;
-          })}
-        </Field>
-        {!values.education.qualifications[actualIndex]?.data?.fmgeDetails?.passingYear && (
-          <small className="text-danger">Year of Passing is required.</small>
-        )}
-      </div>
+  if (!f.passingYear) fmgeErrors.push("Year of Passing");
+  if (!f.registrationNo) fmgeErrors.push("Registration No.");
+  if (!f.totalScore || Number(f.totalScore) <= 0) fmgeErrors.push("Total Score");
+  if (!f.scoreObtained) fmgeErrors.push("Score Obtained");
+  if (f.totalScore && f.scoreObtained && Number(f.scoreObtained) > Number(f.totalScore)) {
+    fmgeErrors.push("Score Obtained (cannot exceed Total Score)");
+  }
+  if (!f.certificate) fmgeErrors.push("Certificate Upload");
 
-      {/* Registration No */}
-      <div className="col-md-4 mb-3">
-        <label>Registration No./Roll No.</label>
-        <Field
-          name={`education.qualifications.${actualIndex}.data.fmgeDetails.registrationNo`}
-          type="text"
-          className="form-control"
-        />
-        {!values.education.qualifications[actualIndex]?.data?.fmgeDetails?.registrationNo && (
-          <small className="text-danger">Registration No. is required.</small>
-        )}
-      </div>
-
-      {/* Total Score (out of 300) */}
-      <div className="col-md-4 mb-3">
-        <label>Total Score (out of 300)</label>
-        <Field name={`education.qualifications.${actualIndex}.data.fmgeDetails.totalScore`}>
-          {({ field, form }) => (
-            <input
-              {...field}
-              type="text"
-              className="form-control"
-              onChange={(e) => {
-                if (!/^\d*$/.test(e.target.value)) return;
-                form.setFieldValue(field.name, e.target.value);
-              }}
-            />
-          )}
-        </Field>
-        {(() => {
-          const f = values.education.qualifications[actualIndex]?.data?.fmgeDetails || {};
-          if (!f.totalScore) {
-            return <small className="text-danger">Total Score is required.</small>;
-          }
-          if (Number(f.totalScore) <= 0) {
-            return <small className="text-danger">Total Score must be greater than 0.</small>;
-          }
-          return null;
-        })()}
-      </div>
-
-      {/* Score Obtained */}
-      <div className="col-md-4 mb-3">
-        <label>Score Obtained</label>
-        <Field name={`education.qualifications.${actualIndex}.data.fmgeDetails.scoreObtained`}>
-          {({ field, form }) => (
-            <input
-              {...field}
-              type="text"
-              className="form-control"
-              onChange={(e) => {
-                if (!/^\d*$/.test(e.target.value)) return;
-                form.setFieldValue(field.name, e.target.value);
-              }}
-            />
-          )}
-        </Field>
-        {(() => {
-          const f = values.education.qualifications[actualIndex]?.data?.fmgeDetails || {};
-          if (!f.scoreObtained) {
-            return <small className="text-danger">Score Obtained is required.</small>;
-          }
-          if (f.totalScore && Number(f.scoreObtained) > Number(f.totalScore)) {
-            return (
-              <small className="text-danger">
-                Score Obtained cannot be greater than Total Score.
-              </small>
-            );
-          }
-          return null;
-        })()}
-      </div>
-
-      {/* Certificate Upload */}
-      <div className="col-md-4 mb-3">
-        <label>Certificate Upload</label>
-        <RenderFileUpload
-          fieldPath={`education.qualifications.${actualIndex}.data.fmgeDetails.certificate`}
-        />
-        {!values.education.qualifications[actualIndex]?.data?.fmgeDetails?.certificate && (
-          <small className="text-danger">Certificate upload is required.</small>
-        )}
-      </div>
-
-    </div>
-  </section>
-)}
+  if (fmgeErrors.length > 0) {
+    errorMessages.push(
+      `Please complete FMGE details: ${fmgeErrors.join(", ")}.`
+    );
+  }
+}
