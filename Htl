@@ -1,13 +1,9 @@
-/* ================= LOAD DISCIPLINE MAPPING LIST (TABLE) ================= */
-useEffect(() => {
-  if (selectedMaster !== "disciplineTypeMapping") return;
-
-  if (!formData.jobNameMasterId) {
-    setList([]);
-    return;
-  }
-
-  const loadDisciplineMappingList = async () => {
+const fetchList = async () => {
+  if (selectedMaster === "disciplineTypeMapping") {
+    if (!formData.jobNameMasterId) {
+      setList([]);
+      return;
+    }
     try {
       setLoading(true);
       const res = await axios.get(
@@ -15,12 +11,24 @@ useEffect(() => {
       );
       setList(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      console.error("Failed to load discipline mapping list", err);
+      console.error(err);
       setList([]);
     } finally {
       setLoading(false);
     }
-  };
+    return;
+  }
 
-  loadDisciplineMappingList();
-}, [selectedMaster, formData.jobNameMasterId]);
+  if (!config?.listApi) return;
+
+  try {
+    setLoading(true);
+    const res = await axios.get(config.listApi);
+    setList(Array.isArray(res.data) ? res.data : []);
+  } catch (err) {
+    console.error(err);
+    setList([]);
+  } finally {
+    setLoading(false);
+  }
+};
