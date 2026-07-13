@@ -1,3 +1,8 @@
-console.log("All qualifications isFMGE values:", 
-  values.education.qualifications.map(q => ({ name: q?.qualificationName, isFMGE: q?.data?.isFMGE }))
-);
+{console.log("RENDER CHECK — actualIndex:", actualIndex, 
+  "data:", values.education.qualifications[actualIndex]?.data,
+  "isFMGE:", values.education.qualifications[actualIndex]?.data?.isFMGE)}
+
+{values.education.qualifications[actualIndex]?.data?.isFMGE && (
+  <section className="mt-4">
+    <h5>FMGE</h5>
+    ...
