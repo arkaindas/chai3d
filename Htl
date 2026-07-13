@@ -1,34 +1,9 @@
-const fetchList = async () => {
-  if (selectedMaster === "disciplineTypeMapping") {
-    if (!formData.jobNameMasterId) {
-      setList([]);
-      return;
-    }
-    try {
-      setLoading(true);
-      const res = await axios.get(
-        `http://13.233.124.147/api/Masters/GetDiscipline?JobNameId=${formData.jobNameMasterId}`
-      );
-      setList(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error(err);
-      setList([]);
-    } finally {
-      setLoading(false);
-    }
-    return;
-  }
+const jobName =
+  parentList.find((p) => p.jobNameMasterId === formData.jobNameMasterId)
+    ?.jobName || "";
 
-  if (!config?.listApi) return;
+const rows = Array.isArray(res.data)
+  ? res.data.map((row) => ({ ...row, jobName }))
+  : [];
 
-  try {
-    setLoading(true);
-    const res = await axios.get(config.listApi);
-    setList(Array.isArray(res.data) ? res.data : []);
-  } catch (err) {
-    console.error(err);
-    setList([]);
-  } finally {
-    setLoading(false);
-  }
-};
+setList(rows);
