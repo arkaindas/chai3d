@@ -1,15 +1,26 @@
-const payload =
-  selectedMaster === "disciplineTypeMapping"
-    ? {
-        jobNameId: formData.jobNameMasterId,
-        jobDisciplineName: formData.jobDisciplineName,
-        addedOn: new Date().toISOString(),
-        updatedOn: new Date().toISOString(),
-      }
-    : {
-        ...formData,
-        addedOn: new Date().toISOString(),
-        updatedOn: new Date().toISOString(),
-      };
+/* ================= LOAD DISCIPLINE MAPPING LIST (TABLE) ================= */
+useEffect(() => {
+  if (selectedMaster !== "disciplineTypeMapping") return;
 
-await postMasterData(config.apiUrl, payload);
+  if (!formData.jobNameMasterId) {
+    setList([]);
+    return;
+  }
+
+  const loadDisciplineMappingList = async () => {
+    try {
+      setLoading(true);
+      const res = await axios.get(
+        `http://13.233.124.147/api/Masters/GetDiscipline?JobNameId=${formData.jobNameMasterId}`
+      );
+      setList(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error("Failed to load discipline mapping list", err);
+      setList([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  loadDisciplineMappingList();
+}, [selectedMaster, formData.jobNameMasterId]);
