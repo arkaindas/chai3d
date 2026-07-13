@@ -1,13 +1,12 @@
-{q?.data?.isFMGE && (
+{values.education.qualifications[LOOP_VAR]?.data?.isFMGE && (
   <section className="mt-4">
     <h5>FMGE</h5>
     <div className="row mb-3">
-
       <div className="col-md-4 mb-3">
         <label>Year of Passing</label>
         <Field
           as="select"
-          name={`education.qualifications.${actualIndex}.data.fmgeDetails.passingYear`}
+          name={`education.qualifications.${LOOP_VAR}.data.fmgeDetails.passingYear`}
           className="form-control"
         >
           <option value="">Select</option>
@@ -21,7 +20,7 @@
       <div className="col-md-4 mb-3">
         <label>Registration No./Roll No.</label>
         <Field
-          name={`education.qualifications.${actualIndex}.data.fmgeDetails.registrationNo`}
+          name={`education.qualifications.${LOOP_VAR}.data.fmgeDetails.registrationNo`}
           type="text"
           className="form-control"
         />
@@ -34,7 +33,7 @@
 
       <div className="col-md-4 mb-3">
         <label>Score Obtained</label>
-        <Field name={`education.qualifications.${actualIndex}.data.fmgeDetails.scoreObtained`}>
+        <Field name={`education.qualifications.${LOOP_VAR}.data.fmgeDetails.scoreObtained`}>
           {({ field, form }) => (
             <input
               {...field}
@@ -52,10 +51,9 @@
       <div className="col-md-4 mb-3">
         <label>Certificate Upload</label>
         <RenderFileUpload
-          fieldPath={`education.qualifications.${actualIndex}.data.fmgeDetails.certificate`}
+          fieldPath={`education.qualifications.${LOOP_VAR}.data.fmgeDetails.certificate`}
         />
       </div>
-
     </div>
   </section>
 )}
