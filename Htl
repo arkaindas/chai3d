@@ -1,14 +1,3 @@
-const handleJobNameSelection = (e) => {
-  const value = e.target.value; // job name
-  const selectedOption = e.target.options[e.target.selectedIndex];
-  const jobId = selectedOption?.dataset?.id; // job id from data-id
-
-  handleChange(e);
-
-  setFieldValue("savedJobConfig", []);
-  setFieldValue("savedPwbdCategoryIds", []);
-
-  if (onJobNameChange) {
-    onJobNameChange(value, jobId); // pass both name and id
-  }
-};
+const isFMGEQualification = (qualificationName = "") =>
+  qualificationName.toLowerCase().includes("mbbs-abroad") ||
+  qualificationName.toLowerCase() === "fmge";
