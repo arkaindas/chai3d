@@ -1,23 +1,14 @@
-const [jobDisciplineList, setJobDisciplineList] = useState([]);
+const handleJobNameSelection = (e) => {
+  const value = e.target.value; // job name
+  const selectedOption = e.target.options[e.target.selectedIndex];
+  const jobId = selectedOption?.dataset?.id; // job id from data-id
 
-const handleJobNameChange = (jobName) => {
-  // existing PWBD filtering — unchanged
-  if (!jobName) {
-    setJobPwbdCategoryList(allPwbdCategories);
-    setJobDisciplineList([]);
-    return;
+  handleChange(e);
+
+  setFieldValue("savedJobConfig", []);
+  setFieldValue("savedPwbdCategoryIds", []);
+
+  if (onJobNameChange) {
+    onJobNameChange(value, jobId); // pass both name and id
   }
-
-  const filtered = allPwbdCategories.filter(
-    (c) => !c.jobName || c.jobName === jobName
-  );
-  setJobPwbdCategoryList(filtered);
-
-  // NEW: fetch disciplines scoped to this job
-  getJobDisciplineListByJobName(jobName)
-    .then((res) => setJobDisciplineList(res.data || []))
-    .catch((err) => {
-      console.error("Discipline fetch failed", err);
-      setJobDisciplineList([]);
-    });
 };
