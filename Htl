@@ -1,3 +1,16 @@
-const isFMGEQualification = (qualificationName = "") =>
-  qualificationName.toLowerCase().includes("mbbs-abroad") ||
-  qualificationName.toLowerCase() === "fmge";
+onChange={(e) => {
+  const idx = Number(e.target.value);
+
+  // STEP 1: Detect FMGE (MBBS outside India)
+  const selectedQual = mandatoryQualifications.find((q) => q._index === idx);
+  const isFMGE = selectedQual?.qualificationName === "MBBS outside India";
+
+  // ✅ ANY ONE QUALIFICATION LOGIC   <-- your existing check stays here
+  if (
+    isAnyOneQualification &&
+    selectedMandatoryIndexes.length >= 1
+  ) {
+    alert("Only one qualification can be added.");
+    return;
+  }
+  ...
