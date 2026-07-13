@@ -1,8 +1,1 @@
-{console.log("RENDER CHECK — actualIndex:", actualIndex, 
-  "data:", values.education.qualifications[actualIndex]?.data,
-  "isFMGE:", values.education.qualifications[actualIndex]?.data?.isFMGE)}
-
-{values.education.qualifications[actualIndex]?.data?.isFMGE && (
-  <section className="mt-4">
-    <h5>FMGE</h5>
-    ...
+9205FC8FAE3196007E8C0B8B9B3639B879AF62D5B3EAA0530E25873046533F4
