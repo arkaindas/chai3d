@@ -1,5 +1,18 @@
-marks: isFMGEQual
-    ? (d.fmgeDetails?.scoreObtained ? Number(d.fmgeDetails.scoreObtained) : null)
-    : (d.marks !== "" && d.marks !== null && d.marks !== undefined
-        ? Number(d.marks)
-        : null),
+data: {
+  ...q.data,
+
+  fmgeDetails: q.qualificationName === "MBBS outside India"
+    ? {
+        passingYear: match.passingYear ? String(match.passingYear) : "",
+        registrationNo: match.registrationNo || "",
+        totalScore: match.maxMarks ? String(match.maxMarks) : "300",
+        scoreObtained: match.marks ? String(match.marks) : "",
+        certificate: match.uploadedDocumentLink || null,
+      }
+    : q.data?.fmgeDetails,
+
+  passingYear: match.passingYear ? String(match.passingYear) : "",
+  marks: match.marks ?? "",
+  registrationNo: match.registrationNo ?? "",
+  // ...rest of existing fields unchanged
+}
