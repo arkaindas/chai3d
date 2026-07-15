@@ -1,11 +1,16 @@
-*Copy*, *-old*, *_old*, dist, node_modules, .env
+VITE_API_BASE_URL=http://13.233.124.147/api
+VITE_SERVER_URL=http://13.233.124.147
+
+*Copy*, *-old*, *_old*, dist, node_modules, .env, vite.config.js
 
 (["'`])http://13\.233\.124\.147/api([^"'`]*)\1
 
-
 `${import.meta.env.VITE_API_BASE_URL}$2`
 
-(\w+)=(`\$\{import\.meta\.env\.VITE_API_BASE_URL\}[^`]*`)
 
+(["'`])http://13\.233\.124\.147([^"'`]*)\1
 
-$1={$2}
+`${import.meta.env.VITE_SERVER_URL}$2`
+
+(\w+)=(`\$\{import\.meta\.env\.VITE_\w+\}[^`]*`)
+
