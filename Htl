@@ -1,38 +1,40 @@
-const NAME_MAX_LENGTH = 60;
+var NAME_MAX_LENGTH = 60;
 
 /**
- * Returns a display-safe name. Always returns a string so callers
- * never need extra null guards.
+ * Returns a display-safe name string.
+ * Always returns a string, so callers need no extra guards.
+ * @param {*} value Raw value from the cookie.
+ * @returns {string} Cleaned name.
  */
 function toSafeName(value) {
   if (typeof value !== 'string') {
     return '';
   }
   return value
-    // control chars, zero-width, bidi-override (used to disguise payloads)
     .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, '')
     .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, NAME_MAX_LENGTH);
+    .replace(/^\s+|\s+$/g, '')
+    .substring(0, NAME_MAX_LENGTH);
 }
 
 /**
- * Safely reads and validates the li_aemuinfo cookie.
- * Returns the detail object, or null if missing/malformed.
+ * Reads and validates the li_aemuinfo cookie.
+ * @returns {Object|null} The detail object, or null if missing/malformed.
  */
 function readAemUserDetail() {
-  const raw = getCookie('li_aemuinfo');
+  var raw = getCookie('li_aemuinfo');
+  var parsed;
   if (!raw) {
     return null;
   }
   try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object'
-      && parsed.detail && typeof parsed.detail === 'object') {
-      return parsed.detail;
-    }
+    parsed = JSON.parse(raw);
   } catch (err) {
     return null;
+  }
+  if (parsed && typeof parsed === 'object' &&
+      parsed.detail && typeof parsed.detail === 'object') {
+    return parsed.detail;
   }
   return null;
 }
@@ -43,30 +45,41 @@ function setFirstName($element, fullName) {
   }
   $('.my-account-default').hide();
   if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i
-    .test(navigator.userAgent) && screen.width < 1024) {
+      .test(navigator.userAgent) && screen.width < 1024) {
     $('.my-account-loggedin').hide();
     $('.my-account-loggedin-mobile').show();
   } else {
     $('.my-account-loggedin-mobile').hide();
     $('.my-account-loggedin').show();
   }
-  // .text() escapes markup: an injected <img onerror=...> renders as
-  // literal characters instead of being parsed as HTML.
+  // .text() sets textContent, so markup is never parsed as HTML.
   $element.text(fullName);
 }
 
 function setUserName() {
-  const detail = readAemUserDetail();
+  var detail = readAemUserDetail();
+  var firstName;
+  var lastName;
+  var fullName;
+
   if (!detail) {
     return;
   }
-  const firstName = toSafeName(detail.firstName);
-  const lastName = toSafeName(detail.lastName);
-  const fullName = `${firstName} ${lastName}`.trim();
 
-  // ...all your existing setFirstName(...) calls, unchanged...
+  firstName = toSafeName(detail.firstName);
+  lastName = toSafeName(detail.lastName);
+  fullName = (firstName + ' ' + lastName).replace(/^\s+|\s+$/g, '');
+
+  setFirstName($('.mega--nav .mega-mobile a[data-mega-drawer=mega-accountlinks].myaccount-welcome .login-msg'), fullName);
+  setFirstName($('.mega--nav .utility--links__account span.myaccount-welcome'), fullName);
+  setFirstName($('.mega--nav .my-account__modal .my-account__content .modal-content .my-account__header .modal-title'), fullName);
+  setFirstName($('.mega--nav .utility--links a[data-mega-drawer=mega-accountlinks].myaccount-welcome .login-msg'), fullName);
 
   if (firstName || lastName) {
-    // ...existing conditional block, unchanged...
+    setFirstName($('.mega--nav .mega-mobile #mega-accountlinks .myaccount-welcome'), fullName);
+    setFirstName($('.mega--nav .mega-mobile #mega-accountlinks .welcome-header .my-account-header'), fullName);
+    setFirstName($('.mega--nav .utility--links #mega-accountlinks .myaccount-welcome'), fullName);
+    setFirstName($('.mega--nav .utility--links__account .new-account .welcome-back-desktop'), fullName);
+    setFirstName($('.mega--nav .my-account-loggedin-mobile #mega-accountlinks .welcome-header .myaccount-username'), fullName);
   }
 }
