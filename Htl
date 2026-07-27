@@ -1,1 +1,72 @@
-{console.log("errors.grade:", errors.grade, "touched.grade:", touched.grade)}
+const NAME_MAX_LENGTH = 60;
+
+/**
+ * Returns a display-safe name. Always returns a string so callers
+ * never need extra null guards.
+ */
+function toSafeName(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value
+    // control chars, zero-width, bidi-override (used to disguise payloads)
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, NAME_MAX_LENGTH);
+}
+
+/**
+ * Safely reads and validates the li_aemuinfo cookie.
+ * Returns the detail object, or null if missing/malformed.
+ */
+function readAemUserDetail() {
+  const raw = getCookie('li_aemuinfo');
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object'
+      && parsed.detail && typeof parsed.detail === 'object') {
+      return parsed.detail;
+    }
+  } catch (err) {
+    return null;
+  }
+  return null;
+}
+
+function setFirstName($element, fullName) {
+  if (!$element || $element.length === 0) {
+    return;
+  }
+  $('.my-account-default').hide();
+  if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i
+    .test(navigator.userAgent) && screen.width < 1024) {
+    $('.my-account-loggedin').hide();
+    $('.my-account-loggedin-mobile').show();
+  } else {
+    $('.my-account-loggedin-mobile').hide();
+    $('.my-account-loggedin').show();
+  }
+  // .text() escapes markup: an injected <img onerror=...> renders as
+  // literal characters instead of being parsed as HTML.
+  $element.text(fullName);
+}
+
+function setUserName() {
+  const detail = readAemUserDetail();
+  if (!detail) {
+    return;
+  }
+  const firstName = toSafeName(detail.firstName);
+  const lastName = toSafeName(detail.lastName);
+  const fullName = `${firstName} ${lastName}`.trim();
+
+  // ...all your existing setFirstName(...) calls, unchanged...
+
+  if (firstName || lastName) {
+    // ...existing conditional block, unchanged...
+  }
+}
