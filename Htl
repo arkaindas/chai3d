@@ -1,1 +1,11 @@
-Due diligence document repository for Meridian Industries Pvt Ltd, containing the FY2025 internal audit report, compliance report, annual report extract, and risk assessment. Use this to answer questions about audit findings, compliance issues, identified risks, and company financials.
+Basepath: https://llm-proxy-server.apps.inmumocpcl.atrapa.deloitte.com
+Model name: qwen3emb-0.6b-agentbuilder-uatint
+3. Vector Store
+Click Vector Store → Faiss
+Base path: <your_email>_dueDiligence
+4. Upsert & test
+Top right → Upsert
+In the popup → Test retrieval → try these three in turn:
+What risks are identified in the reports?
+What were the key audit findings?
+What compliance issues were identified
