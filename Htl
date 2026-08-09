@@ -1,6 +1,17 @@
 [
-  {"name": "Internal Audit Report (FY2024-25)", "category": "Audit Reports", "date": "2025-04-15", "chars": 3075},
-  {"name": "Compliance Monitoring Report (FY2024-25)", "category": "Compliance Reports", "date": "2025-03-20", "chars": 2402},
-  {"name": "Annual Report Extract (FY2024-25)", "category": "Annual Reports", "date": "2025-06-30", "chars": 1907},
-  {"name": "Enterprise Risk Assessment (FY2025-26)", "category": "Risk Assessments", "date": "2025-07-10", "chars": 3122}
+  {"label": "All", "value": "All"},
+  {"label": "Audit Reports", "value": "Audit Reports"},
+  {"label": "Compliance Reports", "value": "Compliance Reports"},
+  {"label": "Annual Reports", "value": "Annual Reports"},
+  {"label": "Risk Assessments", "value": "Risk Assessments"}
 ]
+
+
+{{
+  [
+    {"name": "Internal Audit Report (FY2024-25)", "category": "Audit Reports", "date": "2025-04-15", "chars": 3075},
+    {"name": "Compliance Monitoring Report (FY2024-25)", "category": "Compliance Reports", "date": "2025-03-20", "chars": 2402},
+    {"name": "Annual Report Extract (FY2024-25)", "category": "Annual Reports", "date": "2025-06-30", "chars": 1907},
+    {"name": "Enterprise Risk Assessment (FY2025-26)", "category": "Risk Assessments", "date": "2025-07-10", "chars": 3122}
+  ].filter(d => Select1.selectedOptionValue === "All" || d.category === Select1.selectedOptionValue)
+}}
