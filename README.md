@@ -1,12 +1,1 @@
-# React + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Working as a front-end developer on the Caterpillar (cat.com) digital platform built on Adobe Experience Manager 6.5. My responsibilities include developing and maintaining AEM components using HTL/Sightly, jQuery-based clientlibs, and Sling Models across the CAT product and marketing pages. A major focus of my work has been web performance optimization — identifying and resolving render-blocking JavaScript, improving Core Web Vitals and Lighthouse scores, and auditing third-party integrations such as OneTrust consent management, Google Maps, YouTube APIs, and GTM/GA4 tags. I also handle production defect resolution with a minimal-diff, production-safe approach to ensure existing functionality remains stable.
