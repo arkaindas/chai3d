@@ -1,3 +1,7 @@
-I most strongly demonstrated collaboration and shared ownership. I worked closely with front-end, analytics, and stakeholder teams to resolve issues that spanned multiple areas rather than limiting myself to my own scope. I championed a culture of production safety — validating changes thoroughly before release, documenting decisions clearly, and keeping the wider team informed so others could review and build on my work. This showed up in how I approached every change: prioritising stability of a live customer-facing platform over speed, and raising concerns early rather than working around them.
-Self assessment comments:
-This period I delivered consistent, measurable improvements to platform performance and stability while maintaining a high standard of code quality. I took ownership of complex technical problems, diagnosed root causes rather than applying surface-level fixes, and ensured all changes were low-risk and well-tested before deployment. I communicated progress clearly with my team leader and stakeholders throughout. Going forward, I aim to take on greater ownership of front-end architecture decisions and continue driving performance and quality improvements across the platform.
+I wanted to inform you in advance that my wife and I are expecting our first child. While the official due date is 8 November 2026, our doctor has advised that the delivery is likely to happen earlier — tentatively around 12 October 2026.
+
+Accordingly, I would like to apply for paternity leave starting tentatively from 12 October 2026 for [X weeks], as per policy. Since the date depends on medical advice, the actual start could shift by a week or so in either direction, and I will keep you updated as soon as we have more clarity.
+
+I am sharing this early so that we have sufficient time to plan for coverage and handover on the Caterpillar (Cat) AEM workstream. Please let me know if you would like me to raise the formal leave request in the HR system now, or closer to the date.
+
+Thank you for your support.
